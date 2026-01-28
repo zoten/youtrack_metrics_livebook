@@ -1,0 +1,63 @@
+# Workstream Mapping Configuration
+# Format: workstream_name -> { slugs: [...], tags: [...], substream_of: [...] }
+#
+# - slugs: Issue summary prefixes that map to this workstream (e.g., "[BACKEND] Fix bug")
+# - tags: YouTrack tags that map to this workstream (e.g., "team:backend")
+# - substream_of: Parent workstreams. When "Include substreams" is enabled (default),
+#   issues in this workstream will also appear in the parent workstreams.
+#   Example: API with substream_of: [BACKEND] means API issues count toward BACKEND too.
+#
+# Copy this file to workstreams.yaml and customize for your project.
+
+# Example: A parent workstream matched by slug or tag
+BACKEND:
+  slugs:
+    - BACKEND
+    - BE
+  tags:
+    - team:backend
+
+# Example: A workstream with only slug matching
+FRONTEND:
+  slugs:
+    - FRONTEND
+    - FE
+  tags:
+    - team:frontend
+
+# Example: A substream that rolls up to a parent
+API:
+  slugs:
+    - API
+    - REST API
+  substream_of:
+    - BACKEND
+
+# Example: Another substream
+DATABASE:
+  slugs:
+    - DATABASE
+    - DB
+  substream_of:
+    - BACKEND
+
+# Example: Independent workstreams
+INFRA:
+  slugs:
+    - INFRA
+    - INFRASTRUCTURE
+
+DOCS:
+  slugs:
+    - DOCS
+    - DOCUMENTATION
+
+SECURITY:
+  slugs:
+    - SECURITY
+    - SEC
+
+BAU:
+  slugs:
+    - BAU
+    - MAINTENANCE

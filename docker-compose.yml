@@ -1,0 +1,13 @@
+services:
+  livebook:
+    image: ghcr.io/livebook-dev/livebook:0.18.3
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - LIVEBOOK_TOKEN_ENABLED=false
+    volumes:
+      - .:/data
+      - ./youtrack:/home/livebook/youtrack
+    working_dir: /data

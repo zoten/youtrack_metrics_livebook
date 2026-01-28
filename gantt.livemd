@@ -1,0 +1,901 @@
+# Gantt
+
+```elixir
+Mix.install([
+  {:youtrack, path: "./youtrack"},
+  {:kino, "~> 0.12"},
+  {:kino_vega_lite, "~> 0.1"},
+  {:vega_lite, "~> 0.1"},
+  {:tz, "~> 0.26"}
+])
+
+alias VegaLite, as: Vl
+alias Youtrack.{Client, Fields, Workstreams, WorkstreamsLoader}
+```
+
+## Abstract
+
+This notebook fetches issues from YouTrack and generates Gantt-style charts showing work distribution across team members and workstreams.
+
+## Inputs / envs
+
+```elixir
+base_url_in =
+  Kino.Input.text(
+    "YouTrack base URL (e.g. https://YOUR.youtrack.cloud)",
+    default: System.get_env("YOUTRACK_BASE_URL")
+      || "https://your-instance.youtrack.cloud")
+
+token_in =
+  Kino.Input.password(
+    "Permanent token (env YOUTRACK_TOKEN is recommended)",
+    default: System.get_env("YOUTRACK_TOKEN")
+      || "")
+
+base_query_in =
+  Kino.Input.text(
+    "YouTrack base query (e.g. project: MYPROJECT)",
+    default: System.get_env("YOUTRACK_BASE_QUERY") || "project: MYPROJECT")
+
+days_back_in =
+  Kino.Input.number(
+    "Days back to fetch (e.g. 90)",
+    default: String.to_integer(System.get_env("YOUTRACK_DAYS_BACK") || "90"))
+
+# Names of custom fields can vary between instances.
+state_field_in =
+  Kino.Input.text("State field name (custom field)",
+    default: System.get_env("YOUTRACK_STATE_FIELD")
+      || "State")
+
+assignees_field_in =
+  Kino.Input.text("Assignees field name (custom field)",
+    default: System.get_env("YOUTRACK_ASSIGNEES_FIELD") || "Assignee")
+
+# Your “start at” definition:
+in_progress_names_in =
+  Kino.Input.text(
+    "Comma-separated In Progress state names",
+    default: System.get_env("YOUTRACK_IN_PROGRESS") || "In Progress")
+
+# Toggle: fetch activities to compute 'start_at' precisely (slower, more API calls)
+use_activities_in =
+  Kino.Input.checkbox(
+    "Compute start_at via activities (State -> In Progress)",
+    default: false)
+
+# Optional filter by project prefix (leave empty to include all)
+project_prefix_in =
+  Kino.Input.text(
+    "Filter by issue ID prefix (e.g. MYPROJ, leave empty for all)",
+    default: System.get_env("YOUTRACK_PROJECT_PREFIX") || "")
+
+# Exclude specific assignees by login (comma-separated)
+excluded_logins_in =
+  Kino.Input.text(
+    "Excluded assignee logins (comma-separated)",
+    default: System.get_env("YOUTRACK_EXCLUDED_LOGINS") || "")
+
+# Include substreams: when on, issues in a substream also count toward parent workstreams
+include_substreams_in =
+  Kino.Input.checkbox(
+    "Include substreams (expand to parent workstreams)",
+    default: true)
+
+# Tag used to mark unplanned/interrupt work (e.g., "on the ankles")
+unplanned_tag_in =
+  Kino.Input.text(
+    "Unplanned work tag (e.g., 'on the ankles')",
+    default: System.get_env("YOUTRACK_UNPLANNED_TAG") || "on the ankles")
+
+inputs =
+    Kino.Layout.grid([
+      base_url_in, token_in,
+      base_query_in, days_back_in,
+      state_field_in, assignees_field_in,
+      in_progress_names_in, use_activities_in,
+      project_prefix_in, excluded_logins_in,
+      include_substreams_in, unplanned_tag_in
+    ], columns: 2)
+
+```
+
+## Stream Mapping
+
+```elixir
+# Try to load from workstreams.yaml, fall back to example file
+workstreams_path =
+  cond do
+    File.exists?("workstreams.yaml") -> "workstreams.yaml"
+    File.exists?("/data/workstreams.yaml") -> "/data/workstreams.yaml"
+    File.exists?("workstreams.example.yaml") -> "workstreams.example.yaml"
+    File.exists?("/data/workstreams.example.yaml") -> "/data/workstreams.example.yaml"
+    true -> nil
+  end
+
+default_stream_rules =
+  if workstreams_path do
+    Kino.render(Kino.Markdown.new("Loading workstreams from `#{workstreams_path}`"))
+    WorkstreamsLoader.load_file!(workstreams_path)
+  else
+    Kino.render(Kino.Markdown.new("⚠️ No workstreams.yaml found, using empty config"))
+    WorkstreamsLoader.empty_rules()
+  end
+
+stream_rules_in =
+  Kino.Input.textarea(
+    "Stream rules (edit or paste Elixir map literal to override)",
+    default: inspect(default_stream_rules, pretty: true, limit: :infinity)
+  )
+```
+
+## YouTrack Client
+
+The `Youtrack.Client` module from the package handles API communication.
+
+## Notebook-Specific Helpers
+
+```elixir
+defmodule Status do
+  @moduledoc false
+
+  def classify(issue, state_name, in_progress_names) do
+    resolved = issue["resolved"]
+
+    cond do
+      not is_nil(resolved) ->
+        "finished"
+
+      state_name in in_progress_names ->
+        "ongoing"
+
+      true ->
+        "unfinished"
+    end
+  end
+end
+
+# Compute start_at:
+# - If using activities: earliest timestamp where field == State and added includes one of in_progress_names
+# - Else fallback to created
+defmodule StartAt do
+  @moduledoc false
+
+  def from_activities(activities, state_field_name, in_progress_names) do
+    activities
+    |> Enum.filter(fn a ->
+      field = get_in(a, ["field", "name"])
+      field == state_field_name
+    end)
+    |> Enum.filter(fn a ->
+      added = a["added"] || []
+      added_names =
+        added
+        |> List.wrap()
+        |> Enum.map(& &1["name"])
+        |> Enum.filter(&is_binary/1)
+
+      Enum.any?(added_names, fn n -> n in in_progress_names end)
+    end)
+    |> Enum.map(& &1["timestamp"])
+    |> Enum.filter(&is_integer/1)
+    |> Enum.min(fn -> nil end)
+  end
+end
+
+defmodule WorkItems do
+  @moduledoc "Shared logic to build work items from issues"
+
+  def build(issues, opts) do
+    state_field = opts[:state_field]
+    assignees_field = opts[:assignees_field]
+    rules = opts[:rules]
+    in_progress_names = opts[:in_progress_names]
+    issue_start_at = opts[:issue_start_at] || %{}
+    excluded_logins = opts[:excluded_logins] || []
+    include_substreams = Keyword.get(opts, :include_substreams, true)
+    unplanned_tag = opts[:unplanned_tag]
+
+    issues
+    |> Enum.flat_map(fn issue ->
+      state_name = Fields.state_name(issue, state_field)
+      all_assignees = Fields.assignees(issue, assignees_field)
+
+      # Filter out excluded assignees
+      assignees =
+        Enum.reject(all_assignees, fn a ->
+          login = a["login"] || a["name"] || ""
+          login in excluded_logins
+        end)
+
+      # Skip issue entirely if no assignees remain after filtering
+      if assignees == [] do
+        []
+      else
+        streams = Workstreams.streams_for_issue(issue, rules, include_substreams: include_substreams)
+        status = Status.classify(issue, state_name, in_progress_names)
+
+        created = issue["created"]
+        resolved = issue["resolved"]
+        now_ms = System.system_time(:millisecond)
+
+        start_at = Map.get(issue_start_at, issue["id"]) || created
+
+        end_at =
+          cond do
+            status == "finished" and is_integer(resolved) -> resolved
+            status == "ongoing" -> now_ms
+            true -> now_ms
+          end
+
+        # Check if issue has the unplanned tag
+        tags = Fields.tags(issue)
+        is_unplanned = unplanned_tag && Enum.any?(tags, fn t ->
+          String.downcase(t) == String.downcase(unplanned_tag)
+        end)
+
+        for a <- assignees, stream <- streams do
+          %{
+            issue_id: issue["idReadable"] || issue["id"],
+            issue_internal_id: issue["id"],
+            title: issue["summary"],
+            person_login: a["login"] || a["name"] || "unknown",
+            person_name: a["name"] || a["login"] || "unknown",
+            stream: stream,
+            state: state_name,
+            status: status,
+            start_at: start_at,
+            end_at: end_at,
+            created: created,
+            resolved: resolved,
+            is_unplanned: is_unplanned,
+            tags: tags
+          }
+        end
+      end
+    end)
+  end
+end
+
+defmodule TimeFmt do
+  @moduledoc false
+
+  def iso8601_ms(ms) when is_integer(ms) do
+    DateTime.from_unix!(div(ms, 1000))
+    |> DateTime.to_iso8601()
+  end
+end
+
+defmodule GanttChart do
+  @moduledoc "Shared VegaLite chart spec builder"
+
+  def build(work_items) do
+    vl_data =
+      work_items
+      |> Enum.map(fn wi ->
+        wi
+        |> Map.put(:start, TimeFmt.iso8601_ms(wi.start_at))
+        |> Map.put(:end, TimeFmt.iso8601_ms(wi.end_at))
+        |> Map.put(:work_type, if(wi.is_unplanned, do: "unplanned", else: "planned"))
+      end)
+
+    base =
+      Vl.new(width: 900, height: 70)
+      |> Vl.data_from_values(vl_data)
+      |> Vl.transform(filter: "isValid(datum.start) && isValid(datum.end)")
+
+    inner_spec =
+      Vl.new()
+      |> Vl.mark(:bar, tooltip: true)
+      |> Vl.encode_field(:x, "start", type: :temporal, title: "Time")
+      |> Vl.encode_field(:x2, "end")
+      |> Vl.encode_field(:y, "stream", type: :nominal, title: "Stream")
+      |> Vl.encode_field(:color, "work_type",
+        type: :nominal,
+        title: "Work Type",
+        scale: [domain: ["planned", "unplanned"], range: ["steelblue", "orangered"]]
+      )
+      |> Vl.encode_field(:opacity, "status",
+        type: :nominal,
+        scale: [domain: ["finished", "ongoing", "unfinished"], range: [0.4, 1.0, 0.7]],
+        title: "Status"
+      )
+      |> Vl.encode(:tooltip, [
+        [field: "issue_id", type: :nominal, title: "Issue"],
+        [field: "title", type: :nominal, title: "Title"],
+        [field: "work_type", type: :nominal, title: "Work Type"],
+        [field: "status", type: :nominal, title: "Status"],
+        [field: "state", type: :nominal, title: "State"],
+        [field: "stream", type: :nominal, title: "Stream"],
+        [field: "start", type: :temporal, title: "Start"],
+        [field: "end", type: :temporal, title: "End"]
+      ])
+
+    facet_spec = [field: "person_name", type: :nominal, header: %{title: nil}]
+
+    Vl.facet(base, facet_spec, inner_spec)
+  end
+end
+```
+
+## Fetch Issues (API call)
+
+Re-run this cell only when you need to fetch fresh data from YouTrack.
+
+```elixir
+base_url = Kino.Input.read(base_url_in) |> String.trim()
+token = Kino.Input.read(token_in) |> String.trim()
+base_query = Kino.Input.read(base_query_in) |> String.trim()
+days_back = Kino.Input.read(days_back_in)
+
+state_field = Kino.Input.read(state_field_in) |> String.trim()
+assignees_field = Kino.Input.read(assignees_field_in) |> String.trim()
+
+# Build full query with time interval
+today = Date.utc_today() |> Date.to_iso8601()
+start_date = Date.utc_today() |> Date.add(-days_back) |> Date.to_iso8601()
+query = "#{base_query} updated: #{start_date} .. #{today}"
+
+Kino.render(Kino.Markdown.new("**Query:** `#{query}`"))
+
+req = Client.new!(base_url, token)
+raw_issues = Client.fetch_issues!(req, query)
+
+Kino.Markdown.new("Fetched **#{length(raw_issues)}** issues from API.")
+```
+
+## Filter & Process
+
+Iterate on filtering without hitting the API again.
+
+```elixir
+in_progress_names =
+  Kino.Input.read(in_progress_names_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+use_activities? = Kino.Input.read(use_activities_in)
+project_prefix = Kino.Input.read(project_prefix_in) |> String.trim()
+
+excluded_logins =
+  Kino.Input.read(excluded_logins_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+include_substreams? = Kino.Input.read(include_substreams_in)
+unplanned_tag = Kino.Input.read(unplanned_tag_in) |> String.trim()
+
+rules = Workstreams.parse_rules!(Kino.Input.read(stream_rules_in))
+
+# Apply project prefix filter
+issues =
+  if project_prefix == "" do
+    raw_issues
+  else
+    Enum.filter(raw_issues, fn %{"idReadable" => id_readable} ->
+      String.starts_with?(id_readable, project_prefix)
+    end)
+  end
+
+Kino.render(Kino.Markdown.new("After filtering: **#{length(issues)}** issues."))
+
+# Optional: activities (N+1 calls). Use concurrency but be nice.
+issue_start_at =
+  if use_activities? do
+    issues
+    |> Task.async_stream(
+      fn issue ->
+        id = issue["id"]
+        acts = Client.fetch_activities!(req, id)
+        start_at = StartAt.from_activities(acts, state_field, in_progress_names)
+        {id, start_at}
+      end,
+      max_concurrency: 8,
+      timeout: 60_000
+    )
+    |> Enum.reduce(%{}, fn
+      {:ok, {id, start_at}}, acc -> Map.put(acc, id, start_at)
+      _, acc -> acc
+    end)
+  else
+    %{}
+  end
+
+# Normalize into "work items" (explode assignees, attach streams)
+work_items =
+  WorkItems.build(issues,
+    state_field: state_field,
+    assignees_field: assignees_field,
+    rules: rules,
+    in_progress_names: in_progress_names,
+    issue_start_at: issue_start_at,
+    excluded_logins: excluded_logins,
+    include_substreams: include_substreams?,
+    unplanned_tag: unplanned_tag
+  )
+
+Kino.DataTable.new(Enum.take(work_items, 30))
+```
+
+## Charts
+
+```elixir
+chart = GanttChart.build(work_items)
+Kino.VegaLite.new(chart)
+```
+
+## Unplanned Work Analysis
+
+```elixir
+# Separate planned vs unplanned work items
+unplanned_items = Enum.filter(work_items, & &1.is_unplanned)
+planned_items = Enum.reject(work_items, & &1.is_unplanned)
+
+total_items = length(work_items)
+unplanned_count = length(unplanned_items)
+planned_count = length(planned_items)
+
+unplanned_pct = if total_items > 0, do: Float.round(unplanned_count / total_items * 100, 1), else: 0.0
+
+Kino.render(Kino.Markdown.new("""
+### Summary
+- **Total work items:** #{total_items}
+- **Planned:** #{planned_count} (#{Float.round(100 - unplanned_pct, 1)}%)
+- **Unplanned (#{unplanned_tag}):** #{unplanned_count} (#{unplanned_pct}%)
+"""))
+
+# Pie chart: planned vs unplanned
+pie_data = [
+  %{type: "Planned", count: planned_count},
+  %{type: "Unplanned", count: unplanned_count}
+]
+
+pie_chart =
+  Vl.new(width: 300, height: 300, title: "Planned vs Unplanned Work")
+  |> Vl.data_from_values(pie_data)
+  |> Vl.mark(:arc, tooltip: true)
+  |> Vl.encode_field(:theta, "count", type: :quantitative)
+  |> Vl.encode_field(:color, "type",
+    type: :nominal,
+    scale: [domain: ["Planned", "Unplanned"], range: ["steelblue", "orangered"]]
+  )
+  |> Vl.encode(:tooltip, [
+    [field: "type", type: :nominal, title: "Type"],
+    [field: "count", type: :quantitative, title: "Count"]
+  ])
+
+Kino.VegaLite.new(pie_chart)
+```
+
+### Unplanned % by Person
+
+```elixir
+person_stats =
+  work_items
+  |> Enum.group_by(& &1.person_name)
+  |> Enum.map(fn {person, items} ->
+    total = length(items)
+    unplanned = Enum.count(items, & &1.is_unplanned)
+    pct = if total > 0, do: Float.round(unplanned / total * 100, 1), else: 0.0
+
+    %{person: person, total: total, unplanned: unplanned, unplanned_pct: pct}
+  end)
+  |> Enum.sort_by(& &1.unplanned_pct, :desc)
+
+person_chart =
+  Vl.new(width: 600, height: 300, title: "Unplanned Work % by Person")
+  |> Vl.data_from_values(person_stats)
+  |> Vl.mark(:bar, tooltip: true)
+  |> Vl.encode_field(:x, "person", type: :nominal, title: "Person", sort: "-y")
+  |> Vl.encode_field(:y, "unplanned_pct", type: :quantitative, title: "Unplanned %")
+  |> Vl.encode_field(:color, "unplanned_pct",
+    type: :quantitative,
+    scale: [scheme: "oranges"]
+  )
+  |> Vl.encode(:tooltip, [
+    [field: "person", type: :nominal, title: "Person"],
+    [field: "total", type: :quantitative, title: "Total Items"],
+    [field: "unplanned", type: :quantitative, title: "Unplanned"],
+    [field: "unplanned_pct", type: :quantitative, title: "Unplanned %"]
+  ])
+
+Kino.render(Kino.VegaLite.new(person_chart))
+Kino.DataTable.new(person_stats, name: "Unplanned by Person")
+```
+
+### Unplanned % by Stream
+
+```elixir
+stream_stats =
+  work_items
+  |> Enum.group_by(& &1.stream)
+  |> Enum.map(fn {stream, items} ->
+    total = length(items)
+    unplanned = Enum.count(items, & &1.is_unplanned)
+    pct = if total > 0, do: Float.round(unplanned / total * 100, 1), else: 0.0
+
+    %{stream: stream, total: total, unplanned: unplanned, unplanned_pct: pct}
+  end)
+  |> Enum.sort_by(& &1.unplanned_pct, :desc)
+
+stream_chart =
+  Vl.new(width: 600, height: 300, title: "Unplanned Work % by Workstream")
+  |> Vl.data_from_values(stream_stats)
+  |> Vl.mark(:bar, tooltip: true)
+  |> Vl.encode_field(:x, "stream", type: :nominal, title: "Stream", sort: "-y")
+  |> Vl.encode_field(:y, "unplanned_pct", type: :quantitative, title: "Unplanned %")
+  |> Vl.encode_field(:color, "unplanned_pct",
+    type: :quantitative,
+    scale: [scheme: "oranges"]
+  )
+  |> Vl.encode(:tooltip, [
+    [field: "stream", type: :nominal, title: "Stream"],
+    [field: "total", type: :quantitative, title: "Total Items"],
+    [field: "unplanned", type: :quantitative, title: "Unplanned"],
+    [field: "unplanned_pct", type: :quantitative, title: "Unplanned %"]
+  ])
+
+Kino.render(Kino.VegaLite.new(stream_chart))
+Kino.DataTable.new(stream_stats, name: "Unplanned by Stream")
+```
+
+### Interrupt Timeline Heatmaps
+
+```elixir
+# Parse dates from unplanned items
+unplanned_dates =
+  unplanned_items
+  |> Enum.filter(& &1.created)
+  |> Enum.map(fn item ->
+    dt = DateTime.from_unix!(div(item.created, 1000))
+    date = DateTime.to_date(dt)
+    weekday = Date.day_of_week(date)
+    monthday = date.day
+
+    weekday_name = case weekday do
+      1 -> "Mon"
+      2 -> "Tue"
+      3 -> "Wed"
+      4 -> "Thu"
+      5 -> "Fri"
+      6 -> "Sat"
+      7 -> "Sun"
+    end
+
+    %{
+      date: Date.to_iso8601(date),
+      weekday: weekday,
+      weekday_name: weekday_name,
+      monthday: monthday,
+      person: item.person_name
+    }
+  end)
+
+# Weekday heatmap
+weekday_counts =
+  unplanned_dates
+  |> Enum.frequencies_by(& &1.weekday_name)
+  |> Enum.map(fn {day, count} -> %{weekday: day, count: count} end)
+  |> Enum.sort_by(fn %{weekday: d} ->
+    case d do
+      "Mon" -> 1
+      "Tue" -> 2
+      "Wed" -> 3
+      "Thu" -> 4
+      "Fri" -> 5
+      "Sat" -> 6
+      "Sun" -> 7
+    end
+  end)
+
+weekday_chart =
+  Vl.new(width: 400, height: 200, title: "Interrupts by Day of Week")
+  |> Vl.data_from_values(weekday_counts)
+  |> Vl.mark(:bar, tooltip: true, color: "orangered")
+  |> Vl.encode_field(:x, "weekday",
+    type: :ordinal,
+    title: "Day",
+    sort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  )
+  |> Vl.encode_field(:y, "count", type: :quantitative, title: "Interrupt Count")
+
+# Monthday heatmap
+monthday_counts =
+  unplanned_dates
+  |> Enum.frequencies_by(& &1.monthday)
+  |> Enum.map(fn {day, count} -> %{monthday: day, count: count} end)
+  |> Enum.sort_by(& &1.monthday)
+
+monthday_chart =
+  Vl.new(width: 600, height: 200, title: "Interrupts by Day of Month")
+  |> Vl.data_from_values(monthday_counts)
+  |> Vl.mark(:bar, tooltip: true, color: "orangered")
+  |> Vl.encode_field(:x, "monthday", type: :ordinal, title: "Day of Month")
+  |> Vl.encode_field(:y, "count", type: :quantitative, title: "Interrupt Count")
+
+Kino.Layout.grid([
+  Kino.VegaLite.new(weekday_chart),
+  Kino.VegaLite.new(monthday_chart)
+], columns: 2)
+```
+
+## Unclassified (debug)
+
+```elixir
+# Build "audit rows" from raw issues (not work_items, because those explode per assignee/stream)
+unclassified =
+  issues
+  |> Enum.map(fn issue ->
+    streams = Workstreams.streams_for_issue(issue, rules, include_substreams: include_substreams?)
+    slug =
+      issue["summary"]
+      |> Workstreams.summary_slug()
+      |> Workstreams.normalize_slug()
+      || "(no slug)"
+
+    %{
+      issue_id: issue["idReadable"] || issue["id"],
+      title: issue["summary"],
+      slug: slug,
+      streams: streams
+    }
+  end)
+  |> Enum.filter(fn row -> row.streams == ["(unclassified)"] end)
+
+Kino.render(Kino.Markdown.new("Unclassified issues: **#{length(unclassified)}**"))
+
+# Aggregate counts per slug + keep a few example issue ids/titles
+slug_stats =
+  unclassified
+  |> Enum.group_by(& &1.slug)
+  |> Enum.map(fn {slug, rows} ->
+    examples =
+      rows
+      |> Enum.take(5)
+      |> Enum.map(fn r -> "#{r.issue_id}: #{r.title}" end)
+      |> Enum.join("\n")
+
+    %{
+      slug: slug,
+      count: length(rows),
+      examples: examples
+    }
+  end)
+  |> Enum.sort_by(& &1.count, :desc)
+
+Kino.DataTable.new(slug_stats)
+
+```
+
+## Classifier
+
+```elixir
+defmodule GanttUI do
+  @stream_catalog [
+    "BACKEND", "FRONTEND", "API", "DATABASE", "INFRA",
+    "DOCS", "SECURITY", "BAU"
+  ]
+
+  def render_all(state) do
+    render_stats(state)
+    render_chart(state)
+    render_mapping_widget(state)
+  end
+
+  def render_stats(state) do
+    %{issues: issues, rules_agent: rules_agent, stats_frame: stats_frame} = state
+    rules_now = Agent.get(rules_agent, & &1)
+    include_substreams = state[:include_substreams] || true
+
+    unclassified_rows = compute_unclassified(issues, rules_now, include_substreams)
+
+    slug_stats =
+      unclassified_rows
+      |> Enum.group_by(& &1.slug)
+      |> Enum.map(fn {slug, rows} ->
+        examples =
+          rows
+          |> Enum.take(3)
+          |> Enum.map(fn r -> "#{r.issue_id}: #{r.title}" end)
+          |> Enum.join("\n")
+
+        %{slug: slug, count: length(rows), examples: examples}
+      end)
+      |> Enum.sort_by(& &1.count, :desc)
+
+    stats_content = Kino.Layout.grid([
+      Kino.Markdown.new("**Unclassified issues:** #{length(unclassified_rows)}"),
+      Kino.DataTable.new(slug_stats)
+    ], columns: 1)
+
+    Kino.Frame.render(stats_frame, stats_content)
+  end
+
+  def render_chart(state) do
+    %{
+      issues: issues,
+      rules_agent: rules_agent,
+      chart_frame: chart_frame,
+      state_field: state_field,
+      assignees_field: assignees_field,
+      in_progress_names: in_progress_names
+    } = state
+
+    rules_now = Agent.get(rules_agent, & &1)
+
+    excluded_logins = state[:excluded_logins] || []
+    include_substreams = state[:include_substreams] || true
+    unplanned_tag = state[:unplanned_tag]
+
+    work_items =
+      WorkItems.build(issues,
+        state_field: state_field,
+        assignees_field: assignees_field,
+        rules: rules_now,
+        in_progress_names: in_progress_names,
+        excluded_logins: excluded_logins,
+        include_substreams: include_substreams,
+        unplanned_tag: unplanned_tag
+      )
+
+    chart = GanttChart.build(work_items)
+    Kino.Frame.render(chart_frame, Kino.VegaLite.new(chart))
+  end
+
+  def render_mapping_widget(state) do
+    %{
+      issues: issues,
+      rules_agent: rules_agent,
+      widget_frame: widget_frame,
+      mapping_frame: mapping_frame
+    } = state
+
+    rules_now = Agent.get(rules_agent, & &1)
+    include_substreams = state[:include_substreams] || true
+    unclassified_rows = compute_unclassified(issues, rules_now, include_substreams)
+
+    slug_options =
+      unclassified_rows
+      |> Enum.group_by(& &1.slug)
+      |> Enum.map(fn {slug, rows} -> {"#{slug} (#{length(rows)})", slug} end)
+      |> Enum.sort_by(fn {label, _} -> label end)
+
+    slug_pick =
+      Kino.Input.select(
+        "Pick an unclassified slug",
+        if(slug_options == [], do: [{"(none)", nil}], else: slug_options)
+      )
+
+    stream_pick =
+      Kino.Input.select(
+        "Map this slug to stream",
+        Enum.map(@stream_catalog, fn s -> {s, s} end)
+      )
+
+    # Use Kino.Control.form/2 to bundle inputs and get values on submit
+    form = Kino.Control.form(
+      [slug: slug_pick, stream: stream_pick],
+      submit: "Apply mapping (in-memory)"
+    )
+
+    Kino.Frame.render(widget_frame, form)
+
+    # Show current mappings
+    current_mappings =
+      rules_now.slug_prefix_to_stream
+      |> Enum.map(fn {k, v} -> %{slug: k, streams: Enum.join(v, ", ")} end)
+      |> Enum.sort_by(& &1.slug)
+
+    Kino.Frame.render(mapping_frame, Kino.DataTable.new(current_mappings))
+
+    # Listen to form submission - data comes with the event
+    Kino.listen(form, fn %{data: %{slug: chosen_slug, stream: chosen_stream}} ->
+      if chosen_slug not in [nil, "(NO SLUG)"] and chosen_stream != nil do
+        Agent.update(rules_agent, fn r ->
+          key = Workstreams.normalize_slug(chosen_slug)
+
+          updated =
+            Map.update(
+              r.slug_prefix_to_stream,
+              key,
+              [chosen_stream],
+              fn existing -> Enum.uniq(existing ++ [chosen_stream]) end
+            )
+
+          %{r | slug_prefix_to_stream: updated}
+        end)
+
+        # re-render everything with updated rules
+        GanttUI.render_all(state)
+      end
+    end)
+  end
+
+  defp compute_unclassified(issues, rules, include_substreams) do
+    issues
+    |> Enum.map(fn issue ->
+      streams = Workstreams.streams_for_issue(issue, rules, include_substreams: include_substreams)
+
+      slug =
+        issue["summary"]
+        |> Workstreams.summary_slug()
+        |> Workstreams.normalize_slug()
+        || "(NO SLUG)"
+
+      %{
+        issue_id: issue["idReadable"] || issue["id"],
+        title: issue["summary"],
+        slug: slug,
+        streams: streams
+      }
+    end)
+    |> Enum.filter(&(&1.streams == ["(unclassified)"]))
+  end
+end
+
+# --- Create frames (persistent across re-renders) ---
+widget_frame = Kino.Frame.new()
+stats_frame = Kino.Frame.new()
+chart_frame = Kino.Frame.new()
+mapping_frame = Kino.Frame.new()
+
+# --- Start or reuse the rules agent ---
+rules_agent =
+  case Process.whereis(:gantt_rules_agent) do
+    nil ->
+      {:ok, pid} = Agent.start_link(fn -> rules end, name: :gantt_rules_agent)
+      pid
+
+    pid ->
+      # Update with current rules from input
+      Agent.update(pid, fn _ -> rules end)
+      pid
+  end
+
+# --- Build UI state map with all frames ---
+ui_state = %{
+  issues: issues,
+  rules_agent: rules_agent,
+  state_field: state_field,
+  assignees_field: assignees_field,
+  in_progress_names: in_progress_names,
+  excluded_logins: excluded_logins,
+  include_substreams: include_substreams?,
+  unplanned_tag: unplanned_tag,
+  widget_frame: widget_frame,
+  stats_frame: stats_frame,
+  chart_frame: chart_frame,
+  mapping_frame: mapping_frame
+}
+
+# --- Render initial layout with all frames ---
+Kino.render(
+  Kino.Layout.grid(
+    [
+      Kino.Markdown.new("## Gantt Chart"),
+      chart_frame,
+      Kino.Markdown.new("## Unclassified Issues"),
+      stats_frame,
+      Kino.Markdown.new("## Mapping Controls"),
+      widget_frame,
+      Kino.Markdown.new("## Current Mappings"),
+      mapping_frame
+    ],
+    columns: 1
+  )
+)
+
+# --- Populate all frames ---
+GanttUI.render_all(ui_state)
+```
+
+## Cleanup
+
+Run this cell to stop the background agent when you're done.
+
+```elixir
+case Process.whereis(:gantt_rules_agent) do
+  nil -> :already_stopped
+  pid -> Agent.stop(pid)
+end
+```

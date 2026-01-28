@@ -1,0 +1,8 @@
+# Environment secrets
+.env
+
+# Workstream mapping (contains project-specific config)
+workstreams.yaml
+
+# Temporary/generated data
+tmp/
