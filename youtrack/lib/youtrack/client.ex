@@ -69,6 +69,11 @@ defmodule Youtrack.Client do
         }
 
         resp = Req.get!(req, url: "/api/issues", params: params)
+
+        if resp.status != 200 do
+          raise "YouTrack API returned status #{resp.status}: #{inspect(resp.body) |> String.slice(0, 300)}"
+        end
+
         items = resp.body
 
         cond do
@@ -109,6 +114,11 @@ defmodule Youtrack.Client do
     }
 
     resp = Req.get!(req, url: "/api/issues/#{issue_id}/activities", params: params)
+
+    if resp.status != 200 do
+      raise "YouTrack API returned status #{resp.status} for activities: #{inspect(resp.body) |> String.slice(0, 300)}"
+    end
+
     resp.body
   end
 end

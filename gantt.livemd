@@ -3,14 +3,14 @@
 ```elixir
 Mix.install([
   {:youtrack, path: "./youtrack"},
-  {:kino, "~> 0.12"},
+  {:kino, "~> 0.14"},
   {:kino_vega_lite, "~> 0.1"},
   {:vega_lite, "~> 0.1"},
   {:tz, "~> 0.26"}
 ])
 
 alias VegaLite, as: Vl
-alias Youtrack.{Client, Fields, Workstreams, WorkstreamsLoader}
+alias Youtrack.{Client, Fields, Status, StartAt, WorkItems, Workstreams, WorkstreamsLoader}
 ```
 
 ## Abstract
@@ -62,7 +62,7 @@ in_progress_names_in =
 use_activities_in =
   Kino.Input.checkbox(
     "Compute start_at via activities (State -> In Progress)",
-    default: false)
+    default: true)
 
 # Optional filter by project prefix (leave empty to include all)
 project_prefix_in =
@@ -104,23 +104,13 @@ inputs =
 
 ```elixir
 # Try to load from workstreams.yaml, fall back to example file
-workstreams_path =
-  cond do
-    File.exists?("workstreams.yaml") -> "workstreams.yaml"
-    File.exists?("/data/workstreams.yaml") -> "/data/workstreams.yaml"
-    File.exists?("workstreams.example.yaml") -> "workstreams.example.yaml"
-    File.exists?("/data/workstreams.example.yaml") -> "/data/workstreams.example.yaml"
-    true -> nil
-  end
+{default_stream_rules, workstreams_path} = WorkstreamsLoader.load_from_default_paths()
 
-default_stream_rules =
-  if workstreams_path do
-    Kino.render(Kino.Markdown.new("Loading workstreams from `#{workstreams_path}`"))
-    WorkstreamsLoader.load_file!(workstreams_path)
-  else
-    Kino.render(Kino.Markdown.new("⚠️ No workstreams.yaml found, using empty config"))
-    WorkstreamsLoader.empty_rules()
-  end
+if workstreams_path do
+  Kino.render(Kino.Markdown.new("Loading workstreams from `#{workstreams_path}`"))
+else
+  Kino.render(Kino.Markdown.new("⚠️ No workstreams.yaml found, using empty config"))
+end
 
 stream_rules_in =
   Kino.Input.textarea(
@@ -135,128 +125,10 @@ The `Youtrack.Client` module from the package handles API communication.
 
 ## Notebook-Specific Helpers
 
+`Status`, `StartAt`, and `WorkItems` are now in the `youtrack` library.
+Only chart-building helpers remain notebook-local.
+
 ```elixir
-defmodule Status do
-  @moduledoc false
-
-  def classify(issue, state_name, in_progress_names) do
-    resolved = issue["resolved"]
-
-    cond do
-      not is_nil(resolved) ->
-        "finished"
-
-      state_name in in_progress_names ->
-        "ongoing"
-
-      true ->
-        "unfinished"
-    end
-  end
-end
-
-# Compute start_at:
-# - If using activities: earliest timestamp where field == State and added includes one of in_progress_names
-# - Else fallback to created
-defmodule StartAt do
-  @moduledoc false
-
-  def from_activities(activities, state_field_name, in_progress_names) do
-    activities
-    |> Enum.filter(fn a ->
-      field = get_in(a, ["field", "name"])
-      field == state_field_name
-    end)
-    |> Enum.filter(fn a ->
-      added = a["added"] || []
-      added_names =
-        added
-        |> List.wrap()
-        |> Enum.map(& &1["name"])
-        |> Enum.filter(&is_binary/1)
-
-      Enum.any?(added_names, fn n -> n in in_progress_names end)
-    end)
-    |> Enum.map(& &1["timestamp"])
-    |> Enum.filter(&is_integer/1)
-    |> Enum.min(fn -> nil end)
-  end
-end
-
-defmodule WorkItems do
-  @moduledoc "Shared logic to build work items from issues"
-
-  def build(issues, opts) do
-    state_field = opts[:state_field]
-    assignees_field = opts[:assignees_field]
-    rules = opts[:rules]
-    in_progress_names = opts[:in_progress_names]
-    issue_start_at = opts[:issue_start_at] || %{}
-    excluded_logins = opts[:excluded_logins] || []
-    include_substreams = Keyword.get(opts, :include_substreams, true)
-    unplanned_tag = opts[:unplanned_tag]
-
-    issues
-    |> Enum.flat_map(fn issue ->
-      state_name = Fields.state_name(issue, state_field)
-      all_assignees = Fields.assignees(issue, assignees_field)
-
-      # Filter out excluded assignees
-      assignees =
-        Enum.reject(all_assignees, fn a ->
-          login = a["login"] || a["name"] || ""
-          login in excluded_logins
-        end)
-
-      # Skip issue entirely if no assignees remain after filtering
-      if assignees == [] do
-        []
-      else
-        streams = Workstreams.streams_for_issue(issue, rules, include_substreams: include_substreams)
-        status = Status.classify(issue, state_name, in_progress_names)
-
-        created = issue["created"]
-        resolved = issue["resolved"]
-        now_ms = System.system_time(:millisecond)
-
-        start_at = Map.get(issue_start_at, issue["id"]) || created
-
-        end_at =
-          cond do
-            status == "finished" and is_integer(resolved) -> resolved
-            status == "ongoing" -> now_ms
-            true -> now_ms
-          end
-
-        # Check if issue has the unplanned tag
-        tags = Fields.tags(issue)
-        is_unplanned = unplanned_tag && Enum.any?(tags, fn t ->
-          String.downcase(t) == String.downcase(unplanned_tag)
-        end)
-
-        for a <- assignees, stream <- streams do
-          %{
-            issue_id: issue["idReadable"] || issue["id"],
-            issue_internal_id: issue["id"],
-            title: issue["summary"],
-            person_login: a["login"] || a["name"] || "unknown",
-            person_name: a["name"] || a["login"] || "unknown",
-            stream: stream,
-            state: state_name,
-            status: status,
-            start_at: start_at,
-            end_at: end_at,
-            created: created,
-            resolved: resolved,
-            is_unplanned: is_unplanned,
-            tags: tags
-          }
-        end
-      end
-    end)
-  end
-end
-
 defmodule TimeFmt do
   @moduledoc false
 
@@ -267,7 +139,7 @@ defmodule TimeFmt do
 end
 
 defmodule GanttChart do
-  @moduledoc "Shared VegaLite chart spec builder"
+  @moduledoc "VegaLite Gantt chart spec builder"
 
   def build(work_items) do
     vl_data =

@@ -21,7 +21,8 @@ defmodule Youtrack.MixProject do
   defp deps do
     [
       {:req, "~> 0.5"},
-      {:yaml_elixir, "~> 2.9"}
+      {:yaml_elixir, "~> 2.9"},
+      {:plug, "~> 1.0", only: :test}
     ]
   end
 end

@@ -107,4 +107,31 @@ defmodule Youtrack.WorkstreamsLoader do
       fallback: ["(unclassified)"]
     }
   end
+
+  @doc """
+  Finds and loads workstream rules from standard file locations.
+
+  Searches for `workstreams.yaml` in the current directory and `/data/`,
+  falling back to `workstreams.example.yaml`. Returns empty rules if nothing is found.
+
+  Returns `{rules, path}` where `path` is the file that was loaded, or `nil`.
+  """
+  def load_from_default_paths do
+    path =
+      Enum.find(
+        [
+          "workstreams.yaml",
+          "/data/workstreams.yaml",
+          "workstreams.example.yaml",
+          "/data/workstreams.example.yaml"
+        ],
+        &File.exists?/1
+      )
+
+    if path do
+      {load_file!(path), path}
+    else
+      {empty_rules(), nil}
+    end
+  end
 end
