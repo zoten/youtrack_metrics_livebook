@@ -9,8 +9,12 @@ This notebook computes **flow metrics** from YouTrack issues to help understand 
 * **WIP (Work in Progress)** — concurrent active items per person over time
 * **Context switching index** — distinct workstreams per person per week
 * **Bus factor** — unique assignees per workstream (knowledge silo detection)
+* **Rework detection** — issues reopened after resolution
+* **Knowledge silo trend** — bus factor tracked week-over-week
+* **Interrupt source analysis** — which workstreams generate the most unplanned work
+* **Workstream rotation** — how people rotate between workstreams over time
 
-These metrics map to the **Progress**, **Energy**, and **Togetherness** dimensions of the PETALS team health framework.
+These metrics map to the **Progress**, **Energy**, **Togetherness**, and **Autonomy** dimensions of the PETALS team health framework.
 
 ## Setup
 
@@ -23,7 +27,7 @@ Mix.install([
 ])
 
 alias VegaLite, as: Vl
-alias Youtrack.{Client, Fields, Status, StartAt, WorkItems, Workstreams, WorkstreamsLoader}
+alias Youtrack.{Client, Fields, Status, StartAt, WorkItems, Workstreams, WorkstreamsLoader, Rework, Rotation}
 ```
 
 ## Inputs
@@ -69,6 +73,12 @@ in_progress_names_in =
     default: System.get_env("YOUTRACK_IN_PROGRESS") || "In Progress"
   )
 
+done_state_names_in =
+  Kino.Input.text(
+    "Comma-separated Done state names (for rework detection)",
+    default: System.get_env("YOUTRACK_DONE_STATES") || "Done, Verified, Fixed"
+  )
+
 use_activities_in =
   Kino.Input.checkbox(
     "Compute start_at via activities (State -> In Progress)",
@@ -104,9 +114,10 @@ Kino.Layout.grid(
     base_url_in, token_in,
     base_query_in, days_back_in,
     state_field_in, assignees_field_in,
-    in_progress_names_in, use_activities_in,
-    project_prefix_in, excluded_logins_in,
-    include_substreams_in, unplanned_tag_in
+    in_progress_names_in, done_state_names_in,
+    use_activities_in, project_prefix_in,
+    excluded_logins_in, include_substreams_in,
+    unplanned_tag_in
   ],
   columns: 2
 )
@@ -147,6 +158,11 @@ in_progress_names =
   |> String.split(",", trim: true)
   |> Enum.map(&String.trim/1)
 
+done_state_names =
+  Kino.Input.read(done_state_names_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
 include_substreams? = Kino.Input.read(include_substreams_in)
 unplanned_tag = Kino.Input.read(unplanned_tag_in) |> String.trim()
 use_activities? = Kino.Input.read(use_activities_in)
@@ -175,7 +191,7 @@ Kino.Markdown.new("Fetched **#{length(issues)}** issues.")
 ## Build Work Items
 
 ```elixir
-issue_start_at =
+{issue_start_at, issue_activities} =
   if use_activities? do
     issues
     |> Task.async_stream(
@@ -183,17 +199,20 @@ issue_start_at =
         id = issue["id"]
         acts = Client.fetch_activities!(req, id)
         start_at = StartAt.from_activities(acts, state_field, in_progress_names)
-        {id, start_at}
+        {id, start_at, acts}
       end,
       max_concurrency: 8,
       timeout: 60_000
     )
-    |> Enum.reduce(%{}, fn
-      {:ok, {id, start_at}}, acc -> Map.put(acc, id, start_at)
-      _, acc -> acc
+    |> Enum.reduce({%{}, %{}}, fn
+      {:ok, {id, start_at, acts}}, {start_map, acts_map} ->
+        {Map.put(start_map, id, start_at), Map.put(acts_map, id, acts)}
+
+      _, acc ->
+        acc
     end)
   else
-    %{}
+    {%{}, %{}}
   end
 
 work_items =
@@ -629,6 +648,394 @@ else
 end
 ```
 
+## Rework Detection (Progress)
+
+Issues that were reopened after resolution indicate rework — work that wasn't done right the first time or requirements that changed.
+
+```elixir
+if use_activities? and map_size(issue_activities) > 0 do
+  rework_counts = Rework.count_by_issue(issue_activities, state_field, done_state_names)
+
+  if map_size(rework_counts) > 0 do
+    # Match rework counts to work items for context
+    rework_items =
+      work_items
+      |> Enum.filter(fn wi -> Map.has_key?(rework_counts, wi.issue_internal_id) end)
+      |> Enum.uniq_by(& &1.issue_id)
+      |> Enum.map(fn wi ->
+        %{
+          issue_id: wi.issue_id,
+          title: wi.title,
+          person: wi.person_name,
+          stream: wi.stream,
+          rework_count: Map.get(rework_counts, wi.issue_internal_id, 0)
+        }
+      end)
+      |> Enum.sort_by(& &1.rework_count, :desc)
+
+    total_rework_issues = length(rework_items)
+    total_issues = issues |> Enum.uniq_by(& &1["id"]) |> length()
+    rework_pct = Float.round(total_rework_issues / max(total_issues, 1) * 100, 1)
+
+    Kino.render(Kino.Markdown.new("""
+    ### Rework Summary
+    - **Reworked issues:** #{total_rework_issues} / #{total_issues} (#{rework_pct}%)
+    - **Total reopenings:** #{rework_counts |> Map.values() |> Enum.sum()}
+    - **Done states checked:** #{Enum.join(done_state_names, ", ")}
+    """))
+
+    # Rework by workstream
+    rework_by_stream =
+      rework_items
+      |> Enum.group_by(& &1.stream)
+      |> Enum.map(fn {stream, items} ->
+        %{stream: stream, rework_issues: length(items), total_reopenings: Enum.sum(Enum.map(items, & &1.rework_count))}
+      end)
+      |> Enum.sort_by(& &1.rework_issues, :desc)
+
+    Kino.render(
+      Vl.new(width: 600, height: 300, title: "Rework by Workstream")
+      |> Vl.data_from_values(rework_by_stream)
+      |> Vl.mark(:bar, tooltip: true, color: "coral")
+      |> Vl.encode_field(:x, "stream", type: :nominal, title: "Workstream", sort: "-y")
+      |> Vl.encode_field(:y, "rework_issues", type: :quantitative, title: "Reworked Issues")
+      |> Vl.encode(:tooltip, [
+        [field: "stream", type: :nominal, title: "Stream"],
+        [field: "rework_issues", type: :quantitative, title: "Reworked Issues"],
+        [field: "total_reopenings", type: :quantitative, title: "Total Reopenings"]
+      ])
+      |> Kino.VegaLite.new()
+    )
+
+    Kino.DataTable.new(rework_items, name: "Reworked Issues")
+  else
+    Kino.Markdown.new("*No rework detected — no issues were reopened after resolution.*")
+  end
+else
+  Kino.Markdown.new("""
+  *Rework detection requires activities data.*
+  Enable **"Compute start_at via activities"** and re-run to see rework analysis.
+  """)
+end
+```
+
+## Knowledge Silo Trend (Togetherness)
+
+Bus factor tracked week-over-week. Spots whether knowledge concentration is improving or worsening over time.
+
+```elixir
+silo_trend_data =
+  work_items
+  |> Enum.filter(&is_integer(&1.created))
+  |> Enum.map(fn wi ->
+    date = DateTime.from_unix!(div(wi.created, 1000)) |> DateTime.to_date()
+    week = Date.beginning_of_week(date, :monday) |> Date.to_iso8601()
+    %{week: week, stream: wi.stream, person: wi.person_login}
+  end)
+  |> Enum.group_by(&{&1.week, &1.stream})
+  |> Enum.map(fn {{week, stream}, items} ->
+    unique_people = items |> Enum.map(& &1.person) |> Enum.uniq() |> length()
+    %{week: week, stream: stream, bus_factor: unique_people}
+  end)
+  |> Enum.sort_by(&{&1.week, &1.stream})
+
+if length(silo_trend_data) > 0 do
+  # Line chart: bus factor over time per stream
+  Kino.render(
+    Vl.new(width: 700, height: 350, title: "Knowledge Silo Trend: Bus Factor per Stream over Time")
+    |> Vl.data_from_values(silo_trend_data)
+    |> Vl.mark(:line, point: true, tooltip: true)
+    |> Vl.encode_field(:x, "week", type: :temporal, title: "Week")
+    |> Vl.encode_field(:y, "bus_factor", type: :quantitative, title: "Unique Contributors")
+    |> Vl.encode_field(:color, "stream", type: :nominal, title: "Workstream")
+    |> Vl.encode(:tooltip, [
+      [field: "week", type: :temporal, title: "Week"],
+      [field: "stream", type: :nominal, title: "Stream"],
+      [field: "bus_factor", type: :quantitative, title: "Bus Factor"]
+    ])
+    |> Kino.VegaLite.new()
+  )
+
+  # Heatmap: stream × week
+  Vl.new(width: 700, height: 300, title: "Bus Factor Heatmap: Stream × Week")
+  |> Vl.data_from_values(silo_trend_data)
+  |> Vl.mark(:rect, tooltip: true)
+  |> Vl.encode_field(:x, "week", type: :temporal, title: "Week")
+  |> Vl.encode_field(:y, "stream", type: :nominal, title: "Workstream", sort: :ascending)
+  |> Vl.encode_field(:color, "bus_factor",
+    type: :quantitative,
+    title: "Bus Factor",
+    scale: [scheme: "redyellowgreen"]
+  )
+  |> Vl.encode(:tooltip, [
+    [field: "stream", type: :nominal, title: "Stream"],
+    [field: "week", type: :temporal, title: "Week"],
+    [field: "bus_factor", type: :quantitative, title: "Bus Factor"]
+  ])
+  |> Kino.VegaLite.new()
+else
+  Kino.Markdown.new("*No data for knowledge silo trend.*")
+end
+```
+
+## Interrupt Source Analysis (Autonomy)
+
+Which workstreams and projects generate the most unplanned work? Helps identify where interrupts originate.
+
+```elixir
+unplanned_items = Enum.filter(work_items, & &1.is_unplanned)
+
+if length(unplanned_items) > 0 do
+  total_items_count = work_items |> Enum.uniq_by(& &1.issue_id) |> length()
+  unplanned_unique = unplanned_items |> Enum.uniq_by(& &1.issue_id) |> length()
+  unplanned_pct_val = Float.round(unplanned_unique / max(total_items_count, 1) * 100, 1)
+
+  Kino.render(Kino.Markdown.new("""
+  ### Interrupt Summary
+  - **Unplanned issues:** #{unplanned_unique} / #{total_items_count} (#{unplanned_pct_val}%)
+  - **Tag used:** `#{unplanned_tag}`
+  """))
+
+  # By workstream
+  interrupts_by_stream =
+    unplanned_items
+    |> Enum.uniq_by(&{&1.issue_id, &1.stream})
+    |> Enum.frequencies_by(& &1.stream)
+    |> Enum.map(fn {stream, count} -> %{stream: stream, unplanned: count} end)
+    |> Enum.sort_by(& &1.unplanned, :desc)
+
+  Kino.render(
+    Vl.new(width: 600, height: 300, title: "Unplanned Work by Workstream")
+    |> Vl.data_from_values(interrupts_by_stream)
+    |> Vl.mark(:bar, tooltip: true, color: "salmon")
+    |> Vl.encode_field(:x, "stream", type: :nominal, title: "Workstream", sort: "-y")
+    |> Vl.encode_field(:y, "unplanned", type: :quantitative, title: "Unplanned Issues")
+    |> Vl.encode(:tooltip, [
+      [field: "stream", type: :nominal, title: "Stream"],
+      [field: "unplanned", type: :quantitative, title: "Unplanned"]
+    ])
+    |> Kino.VegaLite.new()
+  )
+
+  # By person — who absorbs the most interrupts?
+  interrupts_by_person =
+    unplanned_items
+    |> Enum.uniq_by(&{&1.issue_id, &1.person_login})
+    |> Enum.frequencies_by(& &1.person_name)
+    |> Enum.map(fn {person, count} -> %{person: person, unplanned: count} end)
+    |> Enum.sort_by(& &1.unplanned, :desc)
+
+  Kino.render(
+    Vl.new(width: 600, height: 300, title: "Unplanned Work by Person (interrupt absorbers)")
+    |> Vl.data_from_values(interrupts_by_person)
+    |> Vl.mark(:bar, tooltip: true, color: "darkorange")
+    |> Vl.encode_field(:x, "person", type: :nominal, title: "Person", sort: "-y")
+    |> Vl.encode_field(:y, "unplanned", type: :quantitative, title: "Unplanned Issues")
+    |> Vl.encode(:tooltip, [
+      [field: "person", type: :nominal, title: "Person"],
+      [field: "unplanned", type: :quantitative, title: "Unplanned"]
+    ])
+    |> Kino.VegaLite.new()
+  )
+
+  # Trend over time
+  interrupt_trend =
+    unplanned_items
+    |> Enum.filter(&is_integer(&1.created))
+    |> Enum.map(fn wi ->
+      date = DateTime.from_unix!(div(wi.created, 1000)) |> DateTime.to_date()
+      week = Date.beginning_of_week(date, :monday) |> Date.to_iso8601()
+      %{week: week, issue_id: wi.issue_id}
+    end)
+    |> Enum.uniq_by(&{&1.week, &1.issue_id})
+    |> Enum.frequencies_by(& &1.week)
+    |> Enum.map(fn {week, count} -> %{week: week, unplanned: count} end)
+    |> Enum.sort_by(& &1.week)
+
+  Vl.new(width: 700, height: 300, title: "Unplanned Work Trend (per week)")
+  |> Vl.data_from_values(interrupt_trend)
+  |> Vl.layers([
+    Vl.new()
+    |> Vl.mark(:bar, opacity: 0.5, color: "salmon")
+    |> Vl.encode_field(:x, "week", type: :temporal, title: "Week")
+    |> Vl.encode_field(:y, "unplanned", type: :quantitative, title: "Unplanned Issues"),
+    Vl.new()
+    |> Vl.mark(:line, color: "red", point: true)
+    |> Vl.encode_field(:x, "week", type: :temporal)
+    |> Vl.encode_field(:y, "unplanned", type: :quantitative)
+  ])
+  |> Vl.encode(:tooltip, [
+    [field: "week", type: :temporal, title: "Week"],
+    [field: "unplanned", type: :quantitative, title: "Unplanned"]
+  ])
+  |> Kino.VegaLite.new()
+else
+  Kino.Markdown.new("*No unplanned items found. Make sure the unplanned tag is set correctly.*")
+end
+```
+
+## Workstream Rotation (Togetherness / Autonomy)
+
+How much do people rotate between workstreams? This section tracks rotation patterns,
+back-and-forth movements, and time spent in each stream before switching.
+
+### Rotation Metrics per Person
+
+```elixir
+rotation_metrics = Rotation.metrics_by_person(work_items)
+
+if length(rotation_metrics) > 0 do
+  avg_switches =
+    Enum.map(rotation_metrics, & &1.switches)
+    |> then(&(Enum.sum(&1) / length(&1)))
+    |> Float.round(1)
+
+  avg_tenure =
+    Enum.map(rotation_metrics, & &1.avg_tenure_weeks)
+    |> then(&(Enum.sum(&1) / length(&1)))
+    |> Float.round(1)
+
+  avg_boomerang =
+    rotation_metrics
+    |> Enum.filter(&(&1.switches > 0))
+    |> then(fn
+      [] -> 0.0
+      filtered -> Enum.map(filtered, & &1.boomerang_rate) |> then(&(Enum.sum(&1) / length(&1))) |> Float.round(1)
+    end)
+
+  Kino.render(Kino.Markdown.new("""
+  ### Rotation Summary
+  - **Avg stream switches per person:** #{avg_switches}
+  - **Avg tenure before switching:** #{avg_tenure} weeks
+  - **Avg boomerang rate:** #{avg_boomerang}% (switches back to a previously worked stream)
+  """))
+
+  # Switches per person chart
+  switch_data =
+    rotation_metrics
+    |> Enum.map(fn m ->
+      %{person: m.person, switches: m.switches, unique_streams: m.unique_streams, boomerang_rate: m.boomerang_rate}
+    end)
+
+  Kino.render(
+    Vl.new(width: 600, height: 300, title: "Stream Switches per Person")
+    |> Vl.data_from_values(switch_data)
+    |> Vl.mark(:bar, tooltip: true)
+    |> Vl.encode_field(:x, "person", type: :nominal, title: "Person", sort: "-y")
+    |> Vl.encode_field(:y, "switches", type: :quantitative, title: "Stream Switches")
+    |> Vl.encode_field(:color, "boomerang_rate",
+      type: :quantitative,
+      scale: [scheme: "purples"],
+      title: "Boomerang %"
+    )
+    |> Vl.encode(:tooltip, [
+      [field: "person", type: :nominal, title: "Person"],
+      [field: "switches", type: :quantitative, title: "Switches"],
+      [field: "unique_streams", type: :quantitative, title: "Unique Streams"],
+      [field: "boomerang_rate", type: :quantitative, title: "Boomerang %"]
+    ])
+    |> Kino.VegaLite.new()
+  )
+
+  # Tenure chart
+  tenure_data =
+    rotation_metrics
+    |> Enum.map(fn m ->
+      %{person: m.person, avg_tenure_weeks: m.avg_tenure_weeks, unique_streams: m.unique_streams}
+    end)
+
+  Kino.render(
+    Vl.new(width: 600, height: 300, title: "Average Tenure per Stream (weeks)")
+    |> Vl.data_from_values(tenure_data)
+    |> Vl.mark(:bar, tooltip: true, color: "mediumpurple")
+    |> Vl.encode_field(:x, "person", type: :nominal, title: "Person", sort: "-y")
+    |> Vl.encode_field(:y, "avg_tenure_weeks", type: :quantitative, title: "Avg Weeks on Same Stream")
+    |> Vl.encode(:tooltip, [
+      [field: "person", type: :nominal, title: "Person"],
+      [field: "avg_tenure_weeks", type: :quantitative, title: "Avg Tenure (weeks)"],
+      [field: "unique_streams", type: :quantitative, title: "Unique Streams"]
+    ])
+    |> Kino.VegaLite.new()
+  )
+
+  # Journey table
+  journey_data =
+    rotation_metrics
+    |> Enum.map(fn m ->
+      %{
+        person: m.person,
+        journey: m.journey,
+        switches: m.switches,
+        unique_streams: m.unique_streams,
+        boomerang_rate: m.boomerang_rate,
+        avg_tenure_weeks: m.avg_tenure_weeks,
+        total_weeks: m.total_weeks
+      }
+    end)
+
+  Kino.DataTable.new(journey_data, name: "Rotation Journeys")
+else
+  Kino.Markdown.new("*No rotation data available.*")
+end
+```
+
+### Workstream Heatmap per Person per Week
+
+A heatmap showing which streams each person worked on each week — reveals focus, fragmentation, and rotation patterns at a glance.
+
+```elixir
+pws_data = Rotation.person_week_stream(work_items)
+
+if length(pws_data) > 0 do
+  Vl.new(width: 700, height: 400, title: "Person × Week: Workstream Activity")
+  |> Vl.data_from_values(pws_data)
+  |> Vl.mark(:rect, tooltip: true)
+  |> Vl.encode_field(:x, "week", type: :temporal, title: "Week")
+  |> Vl.encode_field(:y, "person", type: :nominal, title: "Person")
+  |> Vl.encode_field(:color, "stream", type: :nominal, title: "Workstream")
+  |> Vl.encode(:tooltip, [
+    [field: "person", type: :nominal, title: "Person"],
+    [field: "week", type: :temporal, title: "Week"],
+    [field: "stream", type: :nominal, title: "Stream"],
+    [field: "item_count", type: :quantitative, title: "Items"]
+  ])
+  |> Kino.VegaLite.new()
+else
+  Kino.Markdown.new("*No data for workstream heatmap.*")
+end
+```
+
+### Stream Tenure by Person
+
+How long does each person stay in a stream before switching? Identifies who is deeply invested vs. spreading thin.
+
+```elixir
+tenure_data_detail = Rotation.stream_tenure(work_items)
+
+if length(tenure_data_detail) > 0 do
+  Kino.render(
+    Vl.new(width: 700, height: 400, title: "Stream Tenure: Total Weeks per Person per Stream")
+    |> Vl.data_from_values(tenure_data_detail)
+    |> Vl.mark(:bar, tooltip: true)
+    |> Vl.encode_field(:x, "person", type: :nominal, title: "Person")
+    |> Vl.encode_field(:y, "total_weeks", type: :quantitative, title: "Total Weeks", stack: :zero)
+    |> Vl.encode_field(:color, "stream", type: :nominal, title: "Workstream")
+    |> Vl.encode(:tooltip, [
+      [field: "person", type: :nominal, title: "Person"],
+      [field: "stream", type: :nominal, title: "Stream"],
+      [field: "total_weeks", type: :quantitative, title: "Total Weeks"],
+      [field: "stints", type: :quantitative, title: "Separate Stints"],
+      [field: "avg_stint_weeks", type: :quantitative, title: "Avg Stint (weeks)"]
+    ])
+    |> Kino.VegaLite.new()
+  )
+
+  Kino.DataTable.new(tenure_data_detail, name: "Stream Tenure Details")
+else
+  Kino.Markdown.new("*No tenure data available.*")
+end
+```
+
 ## Summary Scorecard
 
 A PETALS-oriented summary of the key metrics.
@@ -659,6 +1066,29 @@ min_bus = if length(bus_factor_data) > 0, do: hd(bus_factor_data).bus_factor, el
 
 unplanned_pct = if total_items > 0, do: Float.round(unplanned_count / total_items * 100, 1), else: 0.0
 
+rework_pct_val =
+  if use_activities? and map_size(issue_activities) > 0 do
+    rework_counts_final = Rework.count_by_issue(issue_activities, state_field, done_state_names)
+    total_unique = issues |> Enum.uniq_by(& &1["id"]) |> length()
+    if total_unique > 0, do: Float.round(map_size(rework_counts_final) / total_unique * 100, 1), else: 0.0
+  else
+    nil
+  end
+
+rotation_avg_switches =
+  if length(rotation_metrics) > 0 do
+    Enum.map(rotation_metrics, & &1.switches) |> then(&(Enum.sum(&1) / length(&1))) |> Float.round(1)
+  else
+    nil
+  end
+
+rotation_avg_tenure =
+  if length(rotation_metrics) > 0 do
+    Enum.map(rotation_metrics, & &1.avg_tenure_weeks) |> then(&(Enum.sum(&1) / length(&1))) |> Float.round(1)
+  else
+    nil
+  end
+
 Kino.Markdown.new("""
 ## PETALS Scorecard
 
@@ -666,10 +1096,13 @@ Kino.Markdown.new("""
 |-----------|--------|-------|
 | **Progress** | Finished items | #{finished_count} / #{total_items} |
 | **Progress** | Avg cycle time | #{avg_cycle || "N/A"} days |
+| **Progress** | Rework rate | #{rework_pct_val || "N/A (enable activities)"}% |
 | **Energy** | Avg WIP/person | #{avg_wip} items |
 | **Energy** | Ongoing items | #{ongoing_count} |
 | **Togetherness** | Team size | #{unique_people} |
 | **Togetherness** | Min bus factor | #{min_bus || "N/A"} |
+| **Togetherness** | Avg stream switches | #{rotation_avg_switches || "N/A"} |
+| **Togetherness** | Avg stream tenure | #{rotation_avg_tenure || "N/A"} weeks |
 | **Autonomy** | Unplanned % | #{unplanned_pct}% |
 """)
 ```
