@@ -1,0 +1,554 @@
+# Weekly Delivery Report
+
+## Purpose
+
+This notebook fetches YouTrack issues for last week (configurable), builds two windows, and emits structured outputs designed to be fed to LLMs for product/engineering leadership reporting.
+
+Windows generated:
+
+* Last working day report
+* Last week report
+
+Highlights included per issue:
+
+* State transitions in the window
+* Checklist signal (`- [ ]` / `- [x]` in description)
+* Special tags (`on hold`, `blocked`, `to be specified` by default)
+* Comments posted in the window
+* Cycle time starts at first transition from inactivity (`todo`/no state) to active state
+* Net active time excludes hold/blocked periods
+
+## Setup
+
+```elixir
+Mix.install([
+  {:youtrack, path: "./youtrack"},
+  {:kino, "~> 0.14"},
+  {:jason, "~> 1.4"}
+])
+
+alias Youtrack.{Client, WeeklyReport, Workstreams, WorkstreamsLoader}
+```
+
+## Inputs
+
+```elixir
+today = Date.utc_today()
+
+this_week_start = Date.beginning_of_week(today, :monday)
+last_week_start_default = Date.add(this_week_start, -7)
+last_week_end_default = Date.add(this_week_start, -1)
+
+last_working_day_default =
+  case Date.day_of_week(today) do
+    1 -> Date.add(today, -3)
+    7 -> Date.add(today, -2)
+    6 -> Date.add(today, -1)
+    _ -> Date.add(today, -1)
+  end
+
+base_url_in =
+  Kino.Input.text(
+    "YouTrack base URL",
+    default: System.get_env("YOUTRACK_BASE_URL") || "https://your-instance.youtrack.cloud"
+  )
+
+token_in =
+  Kino.Input.password(
+    "Permanent token",
+    default: System.get_env("YOUTRACK_TOKEN") || ""
+  )
+
+base_query_in =
+  Kino.Input.text(
+    "YouTrack base query (e.g. project: MYPROJECT)",
+    default: System.get_env("YOUTRACK_BASE_QUERY") || "project: MYPROJECT"
+  )
+
+week_start_in =
+  Kino.Input.text(
+    "Week start date (ISO, inclusive)",
+    default: System.get_env("YOUTRACK_REPORT_WEEK_START") || Date.to_iso8601(last_week_start_default)
+  )
+
+week_end_in =
+  Kino.Input.text(
+    "Week end date (ISO, inclusive)",
+    default: System.get_env("YOUTRACK_REPORT_WEEK_END") || Date.to_iso8601(last_week_end_default)
+  )
+
+last_working_day_in =
+  Kino.Input.text(
+    "Last working day date (ISO)",
+    default: System.get_env("YOUTRACK_REPORT_LAST_WORKING_DAY") || Date.to_iso8601(last_working_day_default)
+  )
+
+state_field_in =
+  Kino.Input.text(
+    "State field name",
+    default: System.get_env("YOUTRACK_STATE_FIELD") || "State"
+  )
+
+assignees_field_in =
+  Kino.Input.text(
+    "Assignees field name",
+    default: System.get_env("YOUTRACK_ASSIGNEES_FIELD") || "Assignee"
+  )
+
+in_progress_names_in =
+  Kino.Input.text(
+    "In Progress states (comma-separated)",
+    default: System.get_env("YOUTRACK_IN_PROGRESS") || "In Progress"
+  )
+
+inactive_names_in =
+  Kino.Input.text(
+    "Inactive states (comma-separated)",
+    default: System.get_env("YOUTRACK_REPORT_INACTIVE_STATES") || "To Do, Todo"
+  )
+
+done_names_in =
+  Kino.Input.text(
+    "Final states (comma-separated)",
+    default: System.get_env("YOUTRACK_REPORT_DONE") || "Done, Won't Do"
+  )
+
+special_tags_in =
+  Kino.Input.text(
+    "Special tags to highlight (comma-separated)",
+    default: System.get_env("YOUTRACK_REPORT_SPECIAL_TAGS") || "on hold, blocked, to be specified"
+  )
+
+hold_tags_in =
+  Kino.Input.text(
+    "Hold tags excluded from net active time (comma-separated)",
+    default: System.get_env("YOUTRACK_REPORT_HOLD_TAGS") || "on hold, blocked"
+  )
+
+project_prefix_in =
+  Kino.Input.text(
+    "Filter by issue ID prefix (optional)",
+    default: System.get_env("YOUTRACK_PROJECT_PREFIX") || ""
+  )
+
+include_substreams_in =
+  Kino.Input.checkbox(
+    "Include substreams (expand to parents)",
+    default: true
+  )
+
+activities_categories_in =
+  Kino.Input.text(
+    "Activities categories",
+    default: System.get_env("YOUTRACK_REPORT_ACTIVITY_CATEGORIES") || "CustomFieldCategory,TagCategory"
+  )
+
+Kino.Layout.grid(
+  [
+    base_url_in,
+    token_in,
+    base_query_in,
+    week_start_in,
+    week_end_in,
+    last_working_day_in,
+    state_field_in,
+    assignees_field_in,
+    in_progress_names_in,
+    inactive_names_in,
+    done_names_in,
+    special_tags_in,
+    hold_tags_in,
+    project_prefix_in,
+    include_substreams_in,
+    activities_categories_in
+  ],
+  columns: 2
+)
+```
+
+## Load Workstreams + Fetch Issues
+
+```elixir
+base_url = Kino.Input.read(base_url_in) |> String.trim()
+token = Kino.Input.read(token_in) |> String.trim()
+base_query = Kino.Input.read(base_query_in) |> String.trim()
+state_field = Kino.Input.read(state_field_in) |> String.trim()
+assignees_field = Kino.Input.read(assignees_field_in) |> String.trim()
+project_prefix = Kino.Input.read(project_prefix_in) |> String.trim()
+include_substreams? = Kino.Input.read(include_substreams_in)
+
+week_start = Kino.Input.read(week_start_in) |> Date.from_iso8601!()
+week_end = Kino.Input.read(week_end_in) |> Date.from_iso8601!()
+last_working_day = Kino.Input.read(last_working_day_in) |> Date.from_iso8601!()
+
+in_progress_names =
+  Kino.Input.read(in_progress_names_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+inactive_names =
+  Kino.Input.read(inactive_names_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+done_names =
+  Kino.Input.read(done_names_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+special_tags =
+  Kino.Input.read(special_tags_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+hold_tags =
+  Kino.Input.read(hold_tags_in)
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+activities_categories = Kino.Input.read(activities_categories_in) |> String.trim()
+
+{workstream_rules, workstreams_path} = WorkstreamsLoader.load_from_default_paths()
+
+if workstreams_path do
+  Kino.render(Kino.Markdown.new("Loading workstreams from `#{workstreams_path}`"))
+else
+  Kino.render(Kino.Markdown.new("No workstreams.yaml found, using empty config"))
+end
+
+query = "#{base_query} updated: #{Date.to_iso8601(week_start)} .. #{Date.to_iso8601(week_end)}"
+Kino.render(Kino.Markdown.new("**Query:** `#{query}`"))
+
+issue_fields = [
+  "idReadable",
+  "id",
+  "summary",
+  "description",
+  "created",
+  "updated",
+  "resolved",
+  "project(shortName)",
+  "tags(name)",
+  "comments(id,text,created,author(name,login))",
+  "customFields(name,value(name,login))"
+]
+
+req = Client.new!(base_url, token)
+raw_issues = Client.fetch_issues!(req, query, fields: issue_fields)
+
+issues =
+  if project_prefix == "" do
+    raw_issues
+  else
+    Enum.filter(raw_issues, fn issue ->
+      String.starts_with?(issue["idReadable"] || "", project_prefix)
+    end)
+  end
+
+Kino.Markdown.new("Fetched **#{length(issues)}** issues in selected week window.")
+```
+
+## Enrich Issues (Activities + Workstreams)
+
+```elixir
+activity_map =
+  issues
+  |> Task.async_stream(
+    fn issue ->
+      acts = Client.fetch_activities!(req, issue["id"], categories: activities_categories)
+      {issue["id"], acts}
+    end,
+    max_concurrency: 8,
+    timeout: 60_000
+  )
+  |> Enum.reduce(%{}, fn
+    {:ok, {id, acts}}, acc -> Map.put(acc, id, acts)
+    _, acc -> acc
+  end)
+
+issue_workstreams =
+  issues
+  |> Enum.map(fn issue ->
+    streams =
+      Workstreams.streams_for_issue(issue, workstream_rules,
+        include_substreams: include_substreams?
+      )
+      |> Enum.sort()
+
+    {issue["id"], streams}
+  end)
+  |> Map.new()
+
+Kino.Markdown.new("Fetched activities for **#{map_size(activity_map)}** issues.")
+```
+
+## Build Weekly + Daily Summaries
+
+```elixir
+to_start_ms = fn date ->
+  DateTime.new!(date, ~T[00:00:00], "Etc/UTC") |> DateTime.to_unix(:millisecond)
+end
+
+to_end_ms = fn date ->
+  Date.add(date, 1)
+  |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+  |> DateTime.to_unix(:millisecond)
+  |> Kernel.-(1)
+end
+
+weekly_start_ms = to_start_ms.(week_start)
+weekly_end_ms = to_end_ms.(week_end)
+
+daily_start_ms = to_start_ms.(last_working_day)
+daily_end_ms = to_end_ms.(last_working_day)
+
+build_summary = fn issue, window_start_ms, window_end_ms ->
+  WeeklyReport.build_issue_summary(
+    issue,
+    Map.get(activity_map, issue["id"], []),
+    state_field: state_field,
+    assignees_field: assignees_field,
+    in_progress_names: in_progress_names,
+    inactive_names: inactive_names,
+    done_names: done_names,
+    hold_tags: hold_tags,
+    special_tags: special_tags,
+    workstreams: Map.get(issue_workstreams, issue["id"], []),
+    window_start_ms: window_start_ms,
+    window_end_ms: window_end_ms
+  )
+end
+
+touched_in_window? = fn issue, summary, window_start_ms, window_end_ms ->
+  touched_by_issue_timestamps =
+    Enum.any?([issue["created"], issue["updated"], issue["resolved"]], fn ts ->
+      is_integer(ts) and ts >= window_start_ms and ts <= window_end_ms
+    end)
+
+  touched_by_details =
+    summary.description_updated_in_window or
+      summary.state_changes_in_window != [] or
+      summary.hold_tag_changes_in_window != [] or
+      summary.comments_in_window != []
+
+  touched_by_issue_timestamps or touched_by_details
+end
+
+weekly_summaries =
+  issues
+  |> Enum.map(&build_summary.(&1, weekly_start_ms, weekly_end_ms))
+  |> Enum.filter(fn summary ->
+    issue = Enum.find(issues, &(&1["idReadable"] == summary.id))
+    touched_in_window?.(issue, summary, weekly_start_ms, weekly_end_ms)
+  end)
+  |> Enum.sort_by(&{&1.status, -(&1.updated || 0), &1.id})
+
+daily_summaries =
+  issues
+  |> Enum.map(&build_summary.(&1, daily_start_ms, daily_end_ms))
+  |> Enum.filter(fn summary ->
+    issue = Enum.find(issues, &(&1["idReadable"] == summary.id))
+    touched_in_window?.(issue, summary, daily_start_ms, daily_end_ms)
+  end)
+  |> Enum.sort_by(&{&1.status, -(&1.updated || 0), &1.id})
+
+Kino.Markdown.new(
+  "Built **#{length(daily_summaries)}** daily and **#{length(weekly_summaries)}** weekly issue summaries."
+)
+```
+
+## Build LLM-Ready Report Payload
+
+```elixir
+format_ts = fn
+  nil -> nil
+  ms -> DateTime.from_unix!(div(ms, 1000)) |> DateTime.to_iso8601()
+end
+
+summary_metrics = fn summaries, window_start_ms, window_end_ms ->
+  completed =
+    Enum.count(summaries, fn s ->
+      s.status == "finished" and is_integer(s.resolved) and s.resolved >= window_start_ms and
+        s.resolved <= window_end_ms
+    end)
+
+  blocked_or_hold =
+    Enum.count(summaries, fn s ->
+      s.is_on_hold or Enum.any?(s.special_tags, &(String.downcase(&1) in ["blocked", "on hold"]))
+    end)
+
+  to_be_specified =
+    Enum.count(summaries, fn s ->
+      Enum.any?(s.special_tags, &(String.downcase(&1) == "to be specified"))
+    end)
+
+  with_checklists = Enum.count(summaries, &(&1.checklist.checked + &1.checklist.unchecked > 0))
+  with_comments = Enum.count(summaries, &(length(&1.comments_in_window) > 0))
+
+  cycle_values = summaries |> Enum.map(& &1.cycle_time_ms) |> Enum.filter(&is_integer/1)
+  net_values = summaries |> Enum.map(& &1.net_active_time_ms) |> Enum.filter(&is_integer/1)
+
+  avg_or_nil = fn list -> if list == [], do: nil, else: div(Enum.sum(list), length(list)) end
+
+  %{
+    issues_touched: length(summaries),
+    completed_in_window: completed,
+    blocked_or_on_hold: blocked_or_hold,
+    to_be_specified: to_be_specified,
+    issues_with_checklists: with_checklists,
+    issues_with_comments: with_comments,
+    avg_cycle_time_ms: avg_or_nil.(cycle_values),
+    avg_net_active_time_ms: avg_or_nil.(net_values)
+  }
+end
+
+issue_brief = fn s ->
+  checklist_delta = s.checklist.checked - s.checklist.unchecked
+
+  signals =
+    [
+      if(length(s.state_changes_in_window) > 0,
+        do: "state_changed:#{length(s.state_changes_in_window)}",
+        else: nil
+      ),
+      if(length(s.comments_in_window) > 0,
+        do: "comments_added:#{length(s.comments_in_window)}",
+        else: nil
+      ),
+      if(s.checklist.checked + s.checklist.unchecked > 0,
+        do: "checklist_present:#{s.checklist.checked}/#{s.checklist.unchecked}",
+        else: nil
+      ),
+      if(length(s.hold_tag_changes_in_window) > 0,
+        do: "hold_tag_events:#{length(s.hold_tag_changes_in_window)}",
+        else: nil
+      ),
+      if(s.description_updated_in_window, do: "description_updated", else: nil),
+      if(s.special_tags != [], do: "special_tags:#{Enum.join(s.special_tags, "|")}", else: nil)
+    ]
+    |> Enum.filter(& &1)
+
+  %{
+    id: s.id,
+    title: s.title,
+    status: s.status,
+    state: s.state,
+    assignees: s.assignees,
+    workstreams: s.workstreams,
+    special_tags: s.special_tags,
+    checklist: %{checked: s.checklist.checked, unchecked: s.checklist.unchecked, delta: checklist_delta},
+    cycle_time: WeeklyReport.format_duration(s.cycle_time_ms),
+    net_active_time: WeeklyReport.format_duration(s.net_active_time_ms),
+    state_changes: Enum.map(s.state_changes_in_window, &%{at: format_ts.(&1.timestamp), from: &1.from, to: &1.to}),
+    comments:
+      Enum.map(s.comments_in_window, fn c ->
+        %{at: format_ts.(c.timestamp), author: c.author, text: c.text}
+      end),
+    signals: signals,
+    updated_at: format_ts.(s.updated),
+    resolved_at: format_ts.(s.resolved)
+  }
+end
+
+weekly_payload = %{
+  window: %{from: Date.to_iso8601(week_start), to: Date.to_iso8601(week_end)},
+  metrics: summary_metrics.(weekly_summaries, weekly_start_ms, weekly_end_ms),
+  issues: Enum.map(weekly_summaries, issue_brief)
+}
+
+daily_payload = %{
+  window: %{date: Date.to_iso8601(last_working_day)},
+  metrics: summary_metrics.(daily_summaries, daily_start_ms, daily_end_ms),
+  issues: Enum.map(daily_summaries, issue_brief)
+}
+
+report_payload = %{
+  generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+  query: query,
+  configuration: %{
+    state_field: state_field,
+    assignees_field: assignees_field,
+    in_progress_names: in_progress_names,
+    inactive_names: inactive_names,
+    done_names: done_names,
+    special_tags: special_tags,
+    hold_tags: hold_tags,
+    include_substreams: include_substreams?
+  },
+  daily_report: daily_payload,
+  weekly_report: weekly_payload
+}
+
+report_json = Jason.encode!(report_payload, pretty: true)
+
+Kino.Markdown.new("""
+### LLM Payload (JSON)
+#{report_json}
+""")
+
+```
+
+## Suggested Prompt For Product + Engineering Leads
+
+```elixir
+cwd = File.cwd!()
+
+prompt_file_candidates = [
+  ".prompt",
+  "/data/.prompt"
+]
+
+prompt_example_candidates = [
+  ".prompt.example",
+  "/data/.prompt.example"
+]
+
+prompt_file_path = Enum.find(prompt_file_candidates, &File.exists?/1)
+prompt_example_file_path = Enum.find(prompt_example_candidates, &File.exists?/1)
+payload_placeholder = "{{REPORT_PAYLOAD_JSON}}"
+
+{prompt_template, prompt_source} =
+  cond do
+    is_binary(prompt_file_path) ->
+      {File.read!(prompt_file_path), prompt_file_path}
+
+    is_binary(prompt_example_file_path) ->
+      {File.read!(prompt_example_file_path), prompt_example_file_path}
+
+    true ->
+      {"Create .prompt from .prompt.example and optionally add {{REPORT_PAYLOAD_JSON}}.",
+       "built-in fallback"}
+  end
+
+has_payload_placeholder? = String.contains?(prompt_template, payload_placeholder)
+
+if has_payload_placeholder? do
+  Kino.render(
+    Kino.Markdown.new(
+      "Prompt template validation: placeholder `#{payload_placeholder}` found in #{prompt_source}. CWD: #{cwd}."
+    )
+  )
+else
+  Kino.render(
+    Kino.Markdown.new(
+      "Prompt template validation: placeholder `#{payload_placeholder}` not found in #{prompt_source}. JSON payload will be appended at the end. CWD: #{cwd}."
+    )
+  )
+end
+
+llm_prompt =
+  if has_payload_placeholder? do
+    String.replace(prompt_template, payload_placeholder, report_json)
+  else
+    prompt_template <> "\n\nJSON payload:\n" <> report_json
+  end
+
+Kino.Markdown.new("""
+### Prompt To Copy Into ChatGPT (or similar)
+
+Template source: #{prompt_source}
+
+#{llm_prompt}
+""")
+
+```

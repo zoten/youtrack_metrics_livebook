@@ -1,5 +1,6 @@
 # Environment secrets
 .env
+.prompt
 
 # Workstream mapping (contains project-specific config)
 workstreams.yaml

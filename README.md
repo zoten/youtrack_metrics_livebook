@@ -17,6 +17,13 @@ Livebook notebooks for analyzing team activity from YouTrack. Visualize work tim
 - **Firefighter detection** — identifies who handles the most interrupt work
 - **Interrupt frequency charts** (aggregate and per-person)
 
+### Weekly Delivery Report (`weekly_report.livemd`)
+- **Last working day report** and **last week report** in one run
+- **LLM-ready JSON payload** for product and engineering lead summaries
+- **Cycle time starts** at transition from inactive/no-state to active work
+- **Net active time** excludes periods tagged as hold/blocked
+- **Prompt template from file** using `.prompt` (fallback `.prompt.example`)
+
 ## Prerequisites
 
 - Docker and Docker Compose
@@ -48,18 +55,19 @@ docker compose up
 
 ### Environment Variables (`.env`)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `YOUTRACK_BASE_URL` | Yes | Your YouTrack instance URL |
-| `YOUTRACK_TOKEN` | Yes | Permanent API token |
-| `YOUTRACK_BASE_QUERY` | No | Base query filter (e.g., `project: MYPROJECT`) |
-| `YOUTRACK_DAYS_BACK` | No | Days of history to fetch (default: 90) |
-| `YOUTRACK_PROJECT_PREFIX` | No | Filter issues by ID prefix |
-| `YOUTRACK_STATE_FIELD` | No | Custom state field name (default: `State`) |
-| `YOUTRACK_ASSIGNEES_FIELD` | No | Custom assignees field name (default: `Assignee`) |
-| `YOUTRACK_IN_PROGRESS` | No | Comma-separated "in progress" state names |
-| `YOUTRACK_EXCLUDED_LOGINS` | No | Comma-separated logins to exclude |
-| `YOUTRACK_UNPLANNED_TAG` | No | Tag for unplanned work (default: `on the ankles`) |
+| Variable                          | Required | Description                                                                        |
+| --------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| `YOUTRACK_BASE_URL`               | Yes      | Your YouTrack instance URL                                                         |
+| `YOUTRACK_TOKEN`                  | Yes      | Permanent API token                                                                |
+| `YOUTRACK_BASE_QUERY`             | No       | Base query filter (e.g., `project: MYPROJECT`)                                     |
+| `YOUTRACK_DAYS_BACK`              | No       | Days of history to fetch (default: 90)                                             |
+| `YOUTRACK_PROJECT_PREFIX`         | No       | Filter issues by ID prefix                                                         |
+| `YOUTRACK_STATE_FIELD`            | No       | Custom state field name (default: `State`)                                         |
+| `YOUTRACK_ASSIGNEES_FIELD`        | No       | Custom assignees field name (default: `Assignee`)                                  |
+| `YOUTRACK_IN_PROGRESS`            | No       | Comma-separated "in progress" state names                                          |
+| `YOUTRACK_REPORT_INACTIVE_STATES` | No       | Comma-separated inactive states used for cycle-time start (default: `To Do, Todo`) |
+| `YOUTRACK_EXCLUDED_LOGINS`        | No       | Comma-separated logins to exclude                                                  |
+| `YOUTRACK_UNPLANNED_TAG`          | No       | Tag for unplanned work (default: `unplanned`)                                      |
 
 ### Workstreams (`workstreams.yaml`)
 
@@ -91,12 +99,23 @@ API:
 4. **Run cells** top-to-bottom (or use "Evaluate all")
 5. **Adjust inputs** as needed and re-run the filter/analysis cells
 
+### Weekly Prompt Template Configuration
+
+The weekly report notebook reads the LLM prompt from a file:
+
+1. Create `.prompt` from `.prompt.example`
+2. Edit `.prompt` to match your reporting style
+3. Keep `{{REPORT_PAYLOAD_JSON}}` in the template if you want inline substitution
+4. If the placeholder is missing, the JSON payload is appended automatically at the end
+
+This keeps prompt text versionable while allowing local customization in `.prompt`.
+
 ### Tips
 
 - The "Fetch Issues" cell makes API calls — only re-run when you need fresh data
 - Use "Filter & Process" to iterate on filtering without hitting the API
 - The interactive classifier in `gantt.livemd` helps map unrecognized slugs
-- Mark interrupt work with your configured tag (default: `on the ankles`) to see unplanned work metrics
+- Mark interrupt work with your configured tag (default: `unplanned`) to see unplanned work metrics
 
 ## Development
 
