@@ -440,6 +440,26 @@ issue_brief = fn s ->
       }
     end)
 
+  active_time_intervals =
+    Enum.map(s.active_time_intervals, fn interval ->
+      %{
+        from: format_ts.(interval.start_ms),
+        to: format_ts.(interval.end_ms),
+        duration_ms: interval.duration_ms,
+        duration: WeeklyReport.format_duration(interval.duration_ms)
+      }
+    end)
+
+  inactive_interruptions =
+    Enum.map(s.inactive_interruption_intervals, fn interval ->
+      %{
+        from: format_ts.(interval.start_ms),
+        to: format_ts.(interval.end_ms),
+        duration_ms: interval.duration_ms,
+        duration: WeeklyReport.format_duration(interval.duration_ms)
+      }
+    end)
+
   signals =
     [
       if(length(s.state_changes_in_window) > 0,
@@ -474,6 +494,8 @@ issue_brief = fn s ->
     checklist: %{checked: s.checklist.checked, unchecked: s.checklist.unchecked, delta: checklist_delta},
     cycle_time: WeeklyReport.format_duration(s.cycle_time_ms),
     net_active_time: WeeklyReport.format_duration(s.net_active_time_ms),
+    active_time_intervals: active_time_intervals,
+    inactive_interruptions: inactive_interruptions,
     state_changes: Enum.map(s.state_changes_in_window, &%{at: format_ts.(&1.timestamp), from: &1.from, to: &1.to}),
     description_changes: description_changes,
     comments:

@@ -255,6 +255,90 @@ defmodule Youtrack.WeeklyReportTest do
   end
 
   # ---------------------------------------------------------------------------
+  # net_active_time/7
+  # ---------------------------------------------------------------------------
+
+  describe "net_active_time/7" do
+    @start_ms 1_000_000
+    @end_ms 6_000_000
+
+    test "excludes intervals where issue returned to To Do" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 3_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "In Progress"}],
+          "removed" => [%{"name" => "To Do"}],
+          "timestamp" => 4_000_000
+        }
+      ]
+
+      result =
+        WeeklyReport.net_active_time(
+          @start_ms,
+          @end_ms,
+          activities,
+          ["on hold"],
+          "State",
+          ["To Do", "Todo"],
+          ["Done", "Won't Do"]
+        )
+
+      # Active intervals: [1_000_000, 3_000_000] and [4_000_000, 6_000_000]
+      assert result == 4_000_000
+    end
+
+    test "subtracts hold only when overlap happens in active intervals" do
+      activities = [
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [%{"name" => "on hold"}],
+          "removed" => [],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [],
+          "removed" => [%{"name" => "on hold"}],
+          "timestamp" => 5_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 3_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "In Progress"}],
+          "removed" => [%{"name" => "To Do"}],
+          "timestamp" => 4_000_000
+        }
+      ]
+
+      result =
+        WeeklyReport.net_active_time(
+          @start_ms,
+          @end_ms,
+          activities,
+          ["on hold"],
+          "State",
+          ["To Do", "Todo"],
+          ["Done", "Won't Do"]
+        )
+
+      # Active intervals total: 4_000_000.
+      # Hold overlaps active in [2_000_000, 3_000_000] and [4_000_000, 5_000_000] => 2_000_000 paused.
+      assert result == 2_000_000
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # build_issue_summary/3
   # ---------------------------------------------------------------------------
 
@@ -432,6 +516,44 @@ defmodule Youtrack.WeeklyReportTest do
       summary = WeeklyReport.build_issue_summary(issue, activities)
 
       assert summary.cycle_time_ms == 8_000_000 - 3_000_000
+    end
+
+    test "net active time excludes periods when issue returns to To Do" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "In Progress"}],
+          "removed" => [%{"name" => "To Do"}],
+          "timestamp" => 1_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 3_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "In Progress"}],
+          "removed" => [%{"name" => "To Do"}],
+          "timestamp" => 4_000_000
+        }
+      ]
+
+      issue = make_issue(%{"created" => 0, "resolved" => 6_000_000})
+      summary = WeeklyReport.build_issue_summary(issue, activities)
+
+      assert summary.cycle_time_ms == 5_000_000
+      assert summary.net_active_time_ms == 4_000_000
+
+      assert summary.active_time_intervals == [
+               %{start_ms: 1_000_000, end_ms: 3_000_000, duration_ms: 2_000_000},
+               %{start_ms: 4_000_000, end_ms: 6_000_000, duration_ms: 2_000_000}
+             ]
+
+      assert summary.inactive_interruption_intervals == [
+               %{start_ms: 3_000_000, end_ms: 4_000_000, duration_ms: 1_000_000}
+             ]
     end
 
     test "flags description_updated_in_window when updated falls in window" do

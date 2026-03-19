@@ -64,82 +64,73 @@ defmodule Youtrack.WeeklyReport do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Computes the net active time in milliseconds for an issue, excluding periods
-  when any of `hold_tags` were active as tags on the issue.
+  Computes net active time in milliseconds using the full `[start_ms, end_ms]`
+  window and subtracting periods where hold tags were active.
 
-  The function replays all tag activities to determine when hold-state tags were
-  applied and removed, then subtracts those periods from the total
-  `[start_ms, end_ms]` window.
-
-  ## Parameters
-
-  - `start_ms` – when the issue entered active work (e.g., first "In Progress")
-  - `end_ms` – when the issue finished (resolved) or current time if still open
-  - `activities` – full activity list for the issue, including `TagCategory` events
-  - `hold_tags` – list of tag names (case-insensitive) that pause active time,
-    e.g. `["on hold", "blocked"]`
+  This compatibility form keeps the previous behavior and does not account for
+  state interruptions (for example, returning to `To Do`).
 
   Returns `nil` when `start_ms` or `end_ms` is nil.
   """
   def net_active_time(start_ms, end_ms, activities, hold_tags)
       when is_integer(start_ms) and is_integer(end_ms) do
-    hold_lower = MapSet.new(Enum.map(hold_tags, &String.downcase/1))
+    active_intervals = [{start_ms, end_ms}]
+    hold_intervals = hold_intervals(activities, hold_tags, start_ms, end_ms)
+    active_ms = intervals_total_ms(active_intervals)
+    paused_ms = overlap_total_ms(active_intervals, hold_intervals)
 
-    tag_events =
-      activities
-      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == "tags" end)
-      |> Enum.sort_by(& &1["timestamp"])
-
-    # Replay all tag events up to start_ms to find the initial hold state
-    active_holds_at_start =
-      Enum.reduce(tag_events, MapSet.new(), fn act, acc ->
-        if act["timestamp"] <= start_ms do
-          added = hold_names(act["added"], hold_lower)
-          removed = hold_names(act["removed"], hold_lower)
-          acc |> MapSet.union(added) |> MapSet.difference(removed)
-        else
-          acc
-        end
-      end)
-
-    in_hold_at_start = not Enum.empty?(active_holds_at_start)
-    initial_hold_start = if in_hold_at_start, do: start_ms, else: nil
-
-    # Walk through events in (start_ms, end_ms] and accumulate paused duration
-    {total_paused, in_hold_final, hold_start_final} =
-      tag_events
-      |> Enum.filter(fn a -> a["timestamp"] > start_ms and a["timestamp"] <= end_ms end)
-      |> Enum.reduce({0, in_hold_at_start, initial_hold_start}, fn act,
-                                                                   {acc, in_hold, hold_start} ->
-        ts = act["timestamp"]
-        any_added = not Enum.empty?(hold_names(act["added"], hold_lower))
-        any_removed = not Enum.empty?(hold_names(act["removed"], hold_lower))
-
-        cond do
-          not in_hold and any_added ->
-            {acc, true, ts}
-
-          in_hold and any_removed ->
-            paused = max(0, ts - hold_start)
-            {acc + paused, false, nil}
-
-          true ->
-            {acc, in_hold, hold_start}
-        end
-      end)
-
-    # Add remaining hold time if still on hold when the window closes
-    final_paused =
-      if in_hold_final and is_integer(hold_start_final) do
-        total_paused + max(0, end_ms - hold_start_final)
-      else
-        total_paused
-      end
-
-    max(0, end_ms - start_ms - final_paused)
+    max(0, active_ms - paused_ms)
   end
 
   def net_active_time(_start_ms, _end_ms, _activities, _hold_tags), do: nil
+
+  @doc """
+  Computes net active time in milliseconds with state-awareness:
+
+  1. Build active-state intervals from state transition activities.
+  2. Build hold-tag intervals from tag activities.
+  3. Subtract only hold overlap that happened while active.
+
+  This excludes interruptions where the issue moves back to inactive/done states.
+  Returns `nil` when `start_ms` or `end_ms` is nil.
+  """
+  def net_active_time(
+        start_ms,
+        end_ms,
+        activities,
+        hold_tags,
+        state_field,
+        inactive_names,
+        done_names
+      )
+      when is_integer(start_ms) and is_integer(end_ms) do
+    active_intervals =
+      active_intervals(
+        activities,
+        state_field,
+        inactive_names,
+        done_names,
+        start_ms,
+        end_ms
+      )
+
+    hold_intervals = hold_intervals(activities, hold_tags, start_ms, end_ms)
+    active_ms = intervals_total_ms(active_intervals)
+    paused_ms = overlap_total_ms(active_intervals, hold_intervals)
+
+    max(0, active_ms - paused_ms)
+  end
+
+  def net_active_time(
+        _start_ms,
+        _end_ms,
+        _activities,
+        _hold_tags,
+        _state_field,
+        _inactive_names,
+        _done_names
+      ),
+      do: nil
 
   # ---------------------------------------------------------------------------
   # Duration formatting
@@ -299,9 +290,35 @@ defmodule Youtrack.WeeklyReport do
       |> Enum.map(&normalize_description_change/1)
       |> Enum.reject(&is_nil/1)
 
+    {active_time_intervals, inactive_interruption_intervals} =
+      if is_integer(start_ms) and is_integer(end_ms) do
+        active =
+          active_intervals(
+            activities,
+            state_field,
+            inactive_names,
+            done_names,
+            start_ms,
+            end_ms
+          )
+
+        inactive = inverse_intervals(start_ms, end_ms, active)
+        {serialize_intervals(active), serialize_intervals(inactive)}
+      else
+        {[], []}
+      end
+
     net_active =
       if is_integer(start_ms) and is_integer(end_ms) do
-        net_active_time(start_ms, end_ms, activities, hold_tags)
+        net_active_time(
+          start_ms,
+          end_ms,
+          activities,
+          hold_tags,
+          state_field,
+          inactive_names,
+          done_names
+        )
       end
 
     cycle_time = if is_integer(start_ms), do: end_ms - start_ms, else: nil
@@ -323,6 +340,8 @@ defmodule Youtrack.WeeklyReport do
       hold_tag_changes_in_window: hold_tag_changes_in_window,
       comments_in_window: comments_in_window,
       description_changes_in_window: description_changes_in_window,
+      active_time_intervals: active_time_intervals,
+      inactive_interruption_intervals: inactive_interruption_intervals,
       cycle_time_ms: cycle_time,
       net_active_time_ms: net_active,
       description_updated_in_window: description_updated_in_window,
@@ -496,6 +515,190 @@ defmodule Youtrack.WeeklyReport do
   end
 
   defp normalized_text_key?(_value, _expected), do: false
+
+  defp hold_intervals(activities, hold_tags, start_ms, end_ms) do
+    hold_lower = MapSet.new(Enum.map(hold_tags, &String.downcase/1))
+
+    tag_events =
+      activities
+      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == "tags" end)
+      |> Enum.filter(&is_integer(&1["timestamp"]))
+      |> Enum.sort_by(& &1["timestamp"])
+
+    active_holds_at_start =
+      Enum.reduce(tag_events, MapSet.new(), fn act, acc ->
+        if act["timestamp"] <= start_ms do
+          added = hold_names(act["added"], hold_lower)
+          removed = hold_names(act["removed"], hold_lower)
+          acc |> MapSet.union(added) |> MapSet.difference(removed)
+        else
+          acc
+        end
+      end)
+
+    in_hold_at_start = not Enum.empty?(active_holds_at_start)
+    initial_hold_start = if in_hold_at_start, do: start_ms, else: nil
+
+    {intervals, in_hold_final, hold_start_final, _holds} =
+      tag_events
+      |> Enum.filter(fn a -> a["timestamp"] > start_ms and a["timestamp"] <= end_ms end)
+      |> Enum.reduce(
+        {[], in_hold_at_start, initial_hold_start, active_holds_at_start},
+        fn act, {acc, in_hold, hold_start, active_holds} ->
+          ts = act["timestamp"]
+          added = hold_names(act["added"], hold_lower)
+          removed = hold_names(act["removed"], hold_lower)
+          next_active_holds = active_holds |> MapSet.union(added) |> MapSet.difference(removed)
+          next_in_hold = not Enum.empty?(next_active_holds)
+
+          cond do
+            not in_hold and next_in_hold ->
+              {acc, true, ts, next_active_holds}
+
+            in_hold and not next_in_hold ->
+              {[{hold_start, ts} | acc], false, nil, next_active_holds}
+
+            true ->
+              {acc, in_hold, hold_start, next_active_holds}
+          end
+        end
+      )
+
+    intervals =
+      if in_hold_final and is_integer(hold_start_final) do
+        [{hold_start_final, end_ms} | intervals]
+      else
+        intervals
+      end
+
+    intervals
+    |> Enum.reverse()
+    |> Enum.filter(fn {s, e} -> is_integer(s) and is_integer(e) and e > s end)
+  end
+
+  defp active_intervals(
+         activities,
+         state_field,
+         inactive_names,
+         done_names,
+         start_ms,
+         end_ms
+       ) do
+    state_events =
+      activities
+      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == state_field end)
+      |> Enum.filter(&is_integer(&1["timestamp"]))
+      |> Enum.sort_by(& &1["timestamp"])
+
+    # By construction, start_ms marks the beginning of cycle-time counting.
+    # Treat it as active unless state events explicitly move the issue out.
+    {intervals, active, active_start} =
+      state_events
+      |> Enum.filter(fn a -> a["timestamp"] > start_ms and a["timestamp"] <= end_ms end)
+      |> Enum.reduce({[], true, start_ms}, fn act, {acc, active, active_start} ->
+        ts = act["timestamp"]
+        to_states = extract_names(act["added"])
+        removed_states = extract_names(act["removed"])
+
+        to_active? =
+          Enum.any?(to_states, fn state ->
+            active_state?(state, inactive_names, done_names)
+          end)
+
+        to_non_active? =
+          to_states != [] and
+            Enum.all?(to_states, fn state ->
+              not active_state?(state, inactive_names, done_names)
+            end)
+
+        removed_active_without_replacement? =
+          to_states == [] and
+            Enum.any?(removed_states, fn state ->
+              active_state?(state, inactive_names, done_names)
+            end)
+
+        cond do
+          active and (to_non_active? or removed_active_without_replacement?) ->
+            {[{active_start, ts} | acc], false, nil}
+
+          not active and to_active? ->
+            {acc, true, ts}
+
+          true ->
+            {acc, active, active_start}
+        end
+      end)
+
+    intervals =
+      if active and is_integer(active_start) do
+        [{active_start, end_ms} | intervals]
+      else
+        intervals
+      end
+
+    intervals
+    |> Enum.reverse()
+    |> Enum.filter(fn {s, e} -> is_integer(s) and is_integer(e) and e > s end)
+  end
+
+  defp active_state?(state, inactive_names, done_names) when is_binary(state) do
+    normalized = String.downcase(state)
+    inactive_set = inactive_names |> Enum.map(&String.downcase/1) |> MapSet.new()
+    done_set = done_names |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+    normalized not in inactive_set and normalized not in done_set
+  end
+
+  defp active_state?(_state, _inactive_names, _done_names), do: false
+
+  defp intervals_total_ms(intervals) do
+    Enum.reduce(intervals, 0, fn {s, e}, acc -> acc + max(0, e - s) end)
+  end
+
+  defp overlap_total_ms(intervals_a, intervals_b) do
+    Enum.reduce(intervals_a, 0, fn interval_a, acc ->
+      acc +
+        Enum.reduce(intervals_b, 0, fn interval_b, acc_b ->
+          acc_b + overlap_ms(interval_a, interval_b)
+        end)
+    end)
+  end
+
+  defp overlap_ms({start_a, end_a}, {start_b, end_b}) do
+    overlap_start = max(start_a, start_b)
+    overlap_end = min(end_a, end_b)
+    max(0, overlap_end - overlap_start)
+  end
+
+  defp inverse_intervals(start_ms, end_ms, intervals)
+       when is_integer(start_ms) and is_integer(end_ms) do
+    intervals
+    |> Enum.sort_by(fn {s, _e} -> s end)
+    |> Enum.reduce({start_ms, []}, fn {s, e}, {cursor, acc} ->
+      cond do
+        e <= cursor ->
+          {cursor, acc}
+
+        s > cursor ->
+          {max(cursor, e), [{cursor, s} | acc]}
+
+        true ->
+          {max(cursor, e), acc}
+      end
+    end)
+    |> then(fn {cursor, acc} ->
+      gaps = if cursor < end_ms, do: [{cursor, end_ms} | acc], else: acc
+      gaps |> Enum.reverse() |> Enum.filter(fn {s, e} -> e > s end)
+    end)
+  end
+
+  defp inverse_intervals(_start_ms, _end_ms, _intervals), do: []
+
+  defp serialize_intervals(intervals) do
+    Enum.map(intervals, fn {start_ms, end_ms} ->
+      %{start_ms: start_ms, end_ms: end_ms, duration_ms: max(0, end_ms - start_ms)}
+    end)
+  end
 
   defp cycle_start_ms(activities, state_field, inactive_names, done_names) do
     inactive_set = inactive_names |> Enum.map(&String.downcase/1) |> MapSet.new()
