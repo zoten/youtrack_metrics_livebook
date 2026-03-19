@@ -114,7 +114,14 @@ defmodule Youtrack.ClientTest do
   describe "fetch_activities!/2" do
     test "returns activities for an issue" do
       plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
         assert conn.request_path =~ "/api/issues/issue-1/activities"
+        assert conn.query_params["categories"] == "CustomFieldCategory,TagsCategory"
+        assert conn.query_params["$top"] == "100"
+        assert conn.query_params["reverse"] == "false"
+        assert conn.query_params["fields"] =~ "category(id)"
+        assert conn.query_params["fields"] =~ "targetMember"
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -130,6 +137,65 @@ defmodule Youtrack.ClientTest do
       activities = Client.fetch_activities!(req, "issue-1")
 
       assert [%{"timestamp" => 1_700_000_000_000}] = activities
+    end
+
+    test "paginates and forwards optional params" do
+      call_count = :counters.new(1, [:atomics])
+
+      plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+        :counters.add(call_count, 1, 1)
+
+        assert conn.query_params["categories"] == "DescriptionCategory"
+        assert conn.query_params["start"] == "1000"
+        assert conn.query_params["end"] == "2000"
+        assert conn.query_params["reverse"] == "true"
+        assert conn.query_params["$top"] == "1"
+
+        body =
+          case :counters.get(call_count, 1) do
+            1 ->
+              Jason.encode!([%{"id" => "1"}])
+
+            2 ->
+              Jason.encode!([%{"id" => "2"}])
+
+            3 ->
+              Jason.encode!([])
+          end
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, body)
+      end
+
+      req = Req.new(plug: plug)
+
+      activities =
+        Client.fetch_activities!(req, "issue-1",
+          categories: "DescriptionCategory",
+          start: 1000,
+          end: 2000,
+          reverse: true,
+          top: 1
+        )
+
+      assert activities == [%{"id" => "1"}, %{"id" => "2"}]
+      assert :counters.get(call_count, 1) == 3
+    end
+
+    test "raises on non-list response body" do
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"error" => "bad payload"}))
+      end
+
+      req = Req.new(plug: plug)
+
+      assert_raise RuntimeError, ~r/Expected list of activities/, fn ->
+        Client.fetch_activities!(req, "issue-1")
+      end
     end
 
     test "raises on non-200 status" do

@@ -6,6 +6,7 @@ defmodule Youtrack.WeeklyReport do
   - Checklist extraction from issue descriptions (markdown `- [ ]` / `- [x]` syntax)
   - Net active time computation, excluding periods when "on hold" or "blocked" tags are active
   - Per-issue structured summaries combining state changes, comments, and checklist state
+  - Description change extraction from issue activities with compact before/after excerpts
   - Duration formatting utilities
   """
 
@@ -189,7 +190,7 @@ defmodule Youtrack.WeeklyReport do
   - State changes that occurred within `[window_start_ms, window_end_ms]`
   - Comments added within the window
   - Cycle time and net active time (hold/blocked periods excluded)
-  - Whether the description was updated within the window
+  - Description changes within the window, plus a derived boolean flag
 
   ## Options
 
@@ -288,6 +289,16 @@ defmodule Youtrack.WeeklyReport do
         %{author: author, text: c["text"], timestamp: c["created"]}
       end)
 
+    description_changes_in_window =
+      activities
+      |> Enum.filter(&description_activity?/1)
+      |> Enum.filter(fn activity ->
+        in_window?(activity["timestamp"], window_start_ms, window_end_ms)
+      end)
+      |> Enum.sort_by(& &1["timestamp"])
+      |> Enum.map(&normalize_description_change/1)
+      |> Enum.reject(&is_nil/1)
+
     net_active =
       if is_integer(start_ms) and is_integer(end_ms) do
         net_active_time(start_ms, end_ms, activities, hold_tags)
@@ -295,9 +306,7 @@ defmodule Youtrack.WeeklyReport do
 
     cycle_time = if is_integer(start_ms), do: end_ms - start_ms, else: nil
 
-    description_updated_in_window =
-      is_integer(issue["updated"]) and
-        in_window?(issue["updated"], window_start_ms, window_end_ms)
+    description_updated_in_window = description_changes_in_window != []
 
     %{
       id: issue["idReadable"],
@@ -313,6 +322,7 @@ defmodule Youtrack.WeeklyReport do
       state_changes_in_window: state_changes_in_window,
       hold_tag_changes_in_window: hold_tag_changes_in_window,
       comments_in_window: comments_in_window,
+      description_changes_in_window: description_changes_in_window,
       cycle_time_ms: cycle_time,
       net_active_time_ms: net_active,
       description_updated_in_window: description_updated_in_window,
@@ -339,6 +349,153 @@ defmodule Youtrack.WeeklyReport do
   defp extract_names(list) when is_list(list) do
     list |> Enum.map(& &1["name"]) |> Enum.filter(&is_binary/1)
   end
+
+  defp description_activity?(activity) do
+    category_id = get_in(activity, ["category", "id"]) || activity["category"]
+    target_member = activity["targetMember"]
+    field_name = get_in(activity, ["field", "name"])
+
+    category_id == "DescriptionCategory" or
+      normalized_text_key?(target_member, "description") or
+      normalized_text_key?(field_name, "description")
+  end
+
+  defp normalize_description_change(activity) do
+    previous_text = extract_text_value(activity["removed"])
+    new_text = extract_text_value(activity["added"])
+
+    if previous_text == new_text do
+      nil
+    else
+      diff = build_text_change(previous_text, new_text)
+
+      %{
+        timestamp: activity["timestamp"],
+        author: extract_author(activity),
+        change_type: diff.change_type,
+        previous_text: previous_text,
+        new_text: new_text,
+        previous_excerpt: diff.previous_excerpt,
+        new_excerpt: diff.new_excerpt,
+        previous_changed_text: diff.previous_changed_text,
+        new_changed_text: diff.new_changed_text
+      }
+    end
+  end
+
+  defp extract_author(activity) do
+    get_in(activity, ["author", "name"]) || get_in(activity, ["author", "login"]) || "unknown"
+  end
+
+  defp extract_text_value(nil), do: nil
+
+  defp extract_text_value(value) when is_binary(value) do
+    value
+  end
+
+  defp extract_text_value(value) when is_list(value) do
+    value
+    |> Enum.map(&extract_text_value/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      [single] -> single
+      items -> Enum.join(items, "\n")
+    end
+  end
+
+  defp extract_text_value(value) when is_map(value) do
+    value["text"] || value["value"] || value["name"]
+  end
+
+  defp extract_text_value(_value), do: nil
+
+  defp build_text_change(previous_text, new_text) do
+    previous = previous_text || ""
+    current = new_text || ""
+    previous_graphemes = String.graphemes(previous)
+    current_graphemes = String.graphemes(current)
+
+    prefix_len = common_prefix_length(previous_graphemes, current_graphemes)
+
+    previous_tail = Enum.drop(previous_graphemes, prefix_len)
+    current_tail = Enum.drop(current_graphemes, prefix_len)
+    suffix_len = common_suffix_length(previous_tail, current_tail)
+
+    previous_changed_len = max(length(previous_graphemes) - prefix_len - suffix_len, 0)
+    current_changed_len = max(length(current_graphemes) - prefix_len - suffix_len, 0)
+
+    %{
+      change_type: classify_text_change(previous_text, new_text),
+      previous_excerpt:
+        excerpt_text(previous_text, previous_graphemes, prefix_len, previous_changed_len),
+      new_excerpt: excerpt_text(new_text, current_graphemes, prefix_len, current_changed_len),
+      previous_changed_text:
+        changed_segment(previous_text, previous_graphemes, prefix_len, previous_changed_len),
+      new_changed_text:
+        changed_segment(new_text, current_graphemes, prefix_len, current_changed_len)
+    }
+  end
+
+  defp classify_text_change(previous_text, new_text) do
+    cond do
+      blank_text?(previous_text) and not blank_text?(new_text) -> "added"
+      not blank_text?(previous_text) and blank_text?(new_text) -> "removed"
+      true -> "edited"
+    end
+  end
+
+  defp blank_text?(value), do: value in [nil, ""]
+
+  defp excerpt_text(nil, _graphemes, _prefix_len, _changed_len), do: nil
+
+  defp excerpt_text(_text, graphemes, prefix_len, changed_len) do
+    {excerpt_start, excerpt_end} = excerpt_bounds(length(graphemes), prefix_len, changed_len)
+    decorate_excerpt(graphemes, excerpt_start, excerpt_end, length(graphemes))
+  end
+
+  defp changed_segment(nil, _graphemes, _prefix_len, _changed_len), do: nil
+
+  defp changed_segment(_text, graphemes, prefix_len, changed_len) do
+    graphemes
+    |> Enum.slice(prefix_len, changed_len)
+    |> Enum.join()
+  end
+
+  defp excerpt_bounds(total_len, prefix_len, changed_len) do
+    context_size = 120
+    excerpt_start = max(prefix_len - context_size, 0)
+    excerpt_end = min(total_len, prefix_len + changed_len + context_size)
+    {excerpt_start, excerpt_end}
+  end
+
+  defp decorate_excerpt(graphemes, excerpt_start, excerpt_end, total_len) do
+    prefix = if excerpt_start > 0, do: "...", else: ""
+    suffix = if excerpt_end < total_len, do: "...", else: ""
+
+    prefix <>
+      (graphemes
+       |> Enum.slice(excerpt_start, excerpt_end - excerpt_start)
+       |> Enum.join()) <> suffix
+  end
+
+  defp common_prefix_length(left, right) do
+    Enum.zip(left, right)
+    |> Enum.take_while(fn {left_item, right_item} -> left_item == right_item end)
+    |> length()
+  end
+
+  defp common_suffix_length(left, right) do
+    Enum.zip(Enum.reverse(left), Enum.reverse(right))
+    |> Enum.take_while(fn {left_item, right_item} -> left_item == right_item end)
+    |> length()
+  end
+
+  defp normalized_text_key?(value, expected) when is_binary(value) do
+    String.downcase(value) == String.downcase(expected)
+  end
+
+  defp normalized_text_key?(_value, _expected), do: false
 
   defp cycle_start_ms(activities, state_field, inactive_names, done_names) do
     inactive_set = inactive_names |> Enum.map(&String.downcase/1) |> MapSet.new()

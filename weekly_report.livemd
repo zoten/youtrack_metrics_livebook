@@ -13,6 +13,7 @@ Highlights included per issue:
 
 * State transitions in the window
 * Checklist signal (`- [ ]` / `- [x]` in description)
+* Description changes with compact before/after excerpts
 * Special tags (`on hold`, `blocked`, `to be specified` by default)
 * Comments posted in the window
 * Cycle time starts at first transition from inactivity (`todo`/no state) to active state
@@ -140,7 +141,9 @@ include_substreams_in =
 activities_categories_in =
   Kino.Input.text(
     "Activities categories",
-    default: System.get_env("YOUTRACK_REPORT_ACTIVITY_CATEGORIES") || "CustomFieldCategory,TagCategory"
+    default:
+      System.get_env("YOUTRACK_REPORT_ACTIVITY_CATEGORIES") ||
+        "CustomFieldCategory,TagsCategory,DescriptionCategory"
   )
 
 Kino.Layout.grid(
@@ -236,6 +239,18 @@ issue_fields = [
 req = Client.new!(base_url, token)
 raw_issues = Client.fetch_issues!(req, query, fields: issue_fields)
 
+activity_fields = [
+  "id",
+  "timestamp",
+  "category(id)",
+  "author(name,login)",
+  "field(name)",
+  "targetMember",
+  "added",
+  "removed",
+  "markup"
+]
+
 issues =
   if project_prefix == "" do
     raw_issues
@@ -255,7 +270,12 @@ activity_map =
   issues
   |> Task.async_stream(
     fn issue ->
-      acts = Client.fetch_activities!(req, issue["id"], categories: activities_categories)
+      acts =
+        Client.fetch_activities!(req, issue["id"],
+          categories: activities_categories,
+          fields: activity_fields
+        )
+
       {issue["id"], acts}
     end,
     max_concurrency: 8,
@@ -326,7 +346,7 @@ touched_in_window? = fn issue, summary, window_start_ms, window_end_ms ->
     end)
 
   touched_by_details =
-    summary.description_updated_in_window or
+    summary.description_changes_in_window != [] or
       summary.state_changes_in_window != [] or
       summary.hold_tag_changes_in_window != [] or
       summary.comments_in_window != []
@@ -384,6 +404,7 @@ summary_metrics = fn summaries, window_start_ms, window_end_ms ->
 
   with_checklists = Enum.count(summaries, &(&1.checklist.checked + &1.checklist.unchecked > 0))
   with_comments = Enum.count(summaries, &(length(&1.comments_in_window) > 0))
+  with_description_changes = Enum.count(summaries, &(length(&1.description_changes_in_window) > 0))
 
   cycle_values = summaries |> Enum.map(& &1.cycle_time_ms) |> Enum.filter(&is_integer/1)
   net_values = summaries |> Enum.map(& &1.net_active_time_ms) |> Enum.filter(&is_integer/1)
@@ -397,6 +418,7 @@ summary_metrics = fn summaries, window_start_ms, window_end_ms ->
     to_be_specified: to_be_specified,
     issues_with_checklists: with_checklists,
     issues_with_comments: with_comments,
+    issues_with_description_changes: with_description_changes,
     avg_cycle_time_ms: avg_or_nil.(cycle_values),
     avg_net_active_time_ms: avg_or_nil.(net_values)
   }
@@ -404,6 +426,19 @@ end
 
 issue_brief = fn s ->
   checklist_delta = s.checklist.checked - s.checklist.unchecked
+
+  description_changes =
+    Enum.map(s.description_changes_in_window, fn change ->
+      %{
+        at: format_ts.(change.timestamp),
+        author: change.author,
+        type: change.change_type,
+        before_excerpt: change.previous_excerpt,
+        after_excerpt: change.new_excerpt,
+        before_changed: change.previous_changed_text,
+        after_changed: change.new_changed_text
+      }
+    end)
 
   signals =
     [
@@ -423,7 +458,7 @@ issue_brief = fn s ->
         do: "hold_tag_events:#{length(s.hold_tag_changes_in_window)}",
         else: nil
       ),
-      if(s.description_updated_in_window, do: "description_updated", else: nil),
+      if(description_changes != [], do: "description_changed:#{length(description_changes)}", else: nil),
       if(s.special_tags != [], do: "special_tags:#{Enum.join(s.special_tags, "|")}", else: nil)
     ]
     |> Enum.filter(& &1)
@@ -440,6 +475,7 @@ issue_brief = fn s ->
     cycle_time: WeeklyReport.format_duration(s.cycle_time_ms),
     net_active_time: WeeklyReport.format_duration(s.net_active_time_ms),
     state_changes: Enum.map(s.state_changes_in_window, &%{at: format_ts.(&1.timestamp), from: &1.from, to: &1.to}),
+    description_changes: description_changes,
     comments:
       Enum.map(s.comments_in_window, fn c ->
         %{at: format_ts.(c.timestamp), author: c.author, text: c.text}

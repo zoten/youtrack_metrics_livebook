@@ -5,6 +5,20 @@ defmodule Youtrack.Client do
   Creates authenticated Req clients and provides functions to fetch issues and activities.
   """
 
+  @default_activity_fields [
+    "id",
+    "timestamp",
+    "category(id)",
+    "author(name,login)",
+    "field(name)",
+    "targetMember",
+    "added",
+    "removed",
+    "markup"
+  ]
+
+  @default_activity_categories "CustomFieldCategory,TagsCategory"
+
   @default_fields [
     "idReadable",
     "id",
@@ -101,24 +115,65 @@ defmodule Youtrack.Client do
 
   ## Options
 
-    * `:fields` - Activity fields to fetch (default: timestamp, field info, added/removed)
-    * `:categories` - Activity categories filter (default: "CustomFieldCategory")
+    * `:fields` - Activity fields to fetch
+    * `:categories` - Activity categories filter (default: custom fields and tags)
+    * `:top` - Number of activities per page (default: 100)
+    * `:start` - Optional inclusive lower timestamp bound in milliseconds
+    * `:end` - Optional inclusive upper timestamp bound in milliseconds
+    * `:reverse` - Whether to fetch newest-first (default: false)
   """
   def fetch_activities!(req, issue_id, opts \\ []) do
-    fields = Keyword.get(opts, :fields, "timestamp,field(name),added(name),removed(name)")
-    categories = Keyword.get(opts, :categories, "CustomFieldCategory")
+    fields = Keyword.get(opts, :fields, @default_activity_fields)
+    categories = Keyword.get(opts, :categories, @default_activity_categories)
+    top = Keyword.get(opts, :top, 100)
+    start_ms = Keyword.get(opts, :start)
+    end_ms = Keyword.get(opts, :end)
+    reverse = Keyword.get(opts, :reverse, false)
 
-    params = %{
-      "categories" => categories,
-      "fields" => fields
-    }
+    fields_str = if is_list(fields), do: Enum.join(fields, ","), else: fields
 
-    resp = Req.get!(req, url: "/api/issues/#{issue_id}/activities", params: params)
+    Stream.unfold(0, fn
+      nil ->
+        nil
 
-    if resp.status != 200 do
-      raise "YouTrack API returned status #{resp.status} for activities: #{inspect(resp.body) |> String.slice(0, 300)}"
-    end
+      skip ->
+        params =
+          %{
+            "categories" => categories,
+            "fields" => fields_str,
+            "$top" => top,
+            "$skip" => skip,
+            "reverse" => reverse
+          }
+          |> maybe_put_param("start", start_ms)
+          |> maybe_put_param("end", end_ms)
 
-    resp.body
+        resp = Req.get!(req, url: "/api/issues/#{issue_id}/activities", params: params)
+
+        if resp.status != 200 do
+          raise "YouTrack API returned status #{resp.status} for activities: #{inspect(resp.body) |> String.slice(0, 300)}"
+        end
+
+        items = resp.body
+
+        cond do
+          not is_list(items) ->
+            raise "Expected list of activities, got: #{inspect(items) |> String.slice(0, 200)}"
+
+          items == [] ->
+            nil
+
+          length(items) < top ->
+            {items, nil}
+
+          true ->
+            {items, skip + top}
+        end
+    end)
+    |> Enum.to_list()
+    |> List.flatten()
   end
+
+  defp maybe_put_param(params, _key, nil), do: params
+  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
 end

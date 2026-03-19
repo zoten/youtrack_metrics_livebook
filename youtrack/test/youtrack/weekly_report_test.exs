@@ -443,7 +443,88 @@ defmodule Youtrack.WeeklyReportTest do
           window_end_ms: 4_000_000
         )
 
+      assert summary.description_updated_in_window == false
+      assert summary.description_changes_in_window == []
+    end
+
+    test "collects description changes from activities within the window" do
+      activities = [
+        %{
+          "category" => %{"id" => "DescriptionCategory"},
+          "author" => %{"login" => "alice", "name" => "Alice"},
+          "timestamp" => 3_000_000,
+          "removed" => "Original description\n\n- [ ] Pending",
+          "added" => "Updated description\n\n- [x] Done"
+        }
+      ]
+
+      summary =
+        WeeklyReport.build_issue_summary(
+          make_issue(%{"updated" => 3_000_000}),
+          activities,
+          window_start_ms: 2_000_000,
+          window_end_ms: 4_000_000
+        )
+
       assert summary.description_updated_in_window == true
+      assert length(summary.description_changes_in_window) == 1
+
+      change = hd(summary.description_changes_in_window)
+      assert change.author == "Alice"
+      assert change.change_type == "edited"
+      assert change.previous_text =~ "Original description"
+      assert change.new_text =~ "Updated description"
+      assert change.previous_changed_text =~ "Original"
+      assert change.new_changed_text =~ "Updated"
+    end
+
+    test "filters description changes outside the window" do
+      activities = [
+        %{
+          "category" => %{"id" => "DescriptionCategory"},
+          "author" => %{"login" => "alice", "name" => "Alice"},
+          "timestamp" => 1_000_000,
+          "removed" => "Before",
+          "added" => "After"
+        }
+      ]
+
+      summary =
+        WeeklyReport.build_issue_summary(
+          make_issue(),
+          activities,
+          window_start_ms: 2_000_000,
+          window_end_ms: 4_000_000
+        )
+
+      assert summary.description_updated_in_window == false
+      assert summary.description_changes_in_window == []
+    end
+
+    test "supports description events that only add text" do
+      activities = [
+        %{
+          "category" => %{"id" => "DescriptionCategory"},
+          "author" => %{"login" => "alice"},
+          "timestamp" => 3_000_000,
+          "removed" => nil,
+          "added" => "Brand new description"
+        }
+      ]
+
+      summary =
+        WeeklyReport.build_issue_summary(
+          make_issue(),
+          activities,
+          window_start_ms: 2_000_000,
+          window_end_ms: 4_000_000
+        )
+
+      change = hd(summary.description_changes_in_window)
+      assert change.author == "alice"
+      assert change.change_type == "added"
+      assert change.previous_excerpt == nil
+      assert change.new_excerpt == "Brand new description"
     end
 
     test "passes through workstreams from opts" do
