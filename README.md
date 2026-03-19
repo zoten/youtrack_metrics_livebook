@@ -99,6 +99,26 @@ API:
 4. **Run cells** top-to-bottom (or use "Evaluate all")
 5. **Adjust inputs** as needed and re-run the filter/analysis cells
 
+### Local LLM Integration
+
+The `## Run with Local LLM` section at the end of the notebook sends the report payload to any OpenAI-compatible backend:
+
+- **[Ollama](https://ollama.com)** — simplest setup; run `ollama serve` and `ollama pull <model>`
+- **LM Studio** — GUI, exposes `/v1` on `http://localhost:1234` by default
+- **llama.cpp** server — `llama-server --model <path> --port 8080`
+
+#### Model sizing guide
+
+| Hardware         | Model              | Ollama tag                    |
+| ---------------- | ------------------ | ----------------------------- |
+| CPU / ≤8 GB RAM  | Llama 3.2 3B       | `llama3.2:3b`                 |
+| CPU / ≤16 GB RAM | Qwen2.5 7B Q4      | `qwen2.5:7b`                  |
+| CPU / ≥16 GB RAM | Phi-4 14B Q4       | `phi4:14b-q4_K_M`             |
+| GPU ≥16 GB VRAM  | Qwen2.5 32B Q4     | `qwen2.5:32b-instruct-q4_K_M` |
+| GPU ≥20 GB VRAM  | DeepSeek-R1 32B Q4 | `deepseek-r1:32b-q4_K_M`      |
+
+Set `LLM_BASE_URL` and `LLM_MODEL` env vars to pre-fill the notebook inputs.
+
 ### Weekly Prompt Template Configuration
 
 The weekly report notebook reads the LLM prompt from a file:

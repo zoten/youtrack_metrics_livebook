@@ -7,7 +7,17 @@ services:
       - .env
     environment:
       - LIVEBOOK_TOKEN_ENABLED=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - .:/data
       - ./youtrack:/home/livebook/youtrack
     working_dir: /data
+  
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - /usr/share/ollama/.ollama:/root/.ollama
+    restart: unless-stopped

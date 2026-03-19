@@ -610,3 +610,120 @@ Template source: #{prompt_source}
 """)
 
 ```
+
+## Run with Local LLM
+
+> **Optional section.** Requires a running [Ollama](https://ollama.com) instance (local or remote)
+> exposing the OpenAI-compatible `/v1/chat/completions` endpoint. Works equally with
+> LM Studio, llama.cpp server, or any other OpenAI-compat backend.
+> 
+> ### Suggested models
+> 
+> **CPU / iGPU (≤16 GB RAM)**
+> 
+> | Model         | Ollama tag        | ~RAM   | Notes                                  |
+> | ------------- | ----------------- | ------ | -------------------------------------- |
+> | Llama 3.2 3B  | `llama3.2:3b`     | 2 GB   | Fast; good for quick summaries         |
+> | Qwen2.5 7B Q4 | `qwen2.5:7b`      | 4.5 GB | Good quality/speed balance             |
+> | Phi-4 14B Q4  | `phi4:14b-q4_K_M` | 9 GB   | Stronger reasoning; needs ≥16 GB RAM |
+> 
+> **GPU (≥16 GB VRAM)**
+> 
+> | Model              | Ollama tag                    | ~VRAM  | Notes                                   |
+> | ------------------ | ----------------------------- | ------ | --------------------------------------- |
+> | **Qwen2.5 32B Q4** | `qwen2.5:32b-instruct-q4_K_M` | ~19 GB | Recommended for best quality            |
+> | Qwen2.5 32B Q5     | `qwen2.5:32b-instruct-q5_K_M` | ~22 GB | Higher fidelity                         |
+> | DeepSeek-R1 32B Q4 | `deepseek-r1:32b-q4_K_M`      | ~19 GB | Reasoning model; more analytical output |
+
+```elixir
+llm_url_in =
+  Kino.Input.text("Ollama / OpenAI-compat base URL",
+    default: System.get_env("LLM_BASE_URL") || "http://localhost:11434"
+  )
+
+llm_model_in =
+  Kino.Input.text("Model name",
+    default: System.get_env("LLM_MODEL") || "qwen2.5:7b"
+  )
+
+llm_window_in =
+  Kino.Input.select("Report window to analyse",
+      [daily: "Daily", weekly: "Weekly"],
+    default: :daily
+  )
+
+llm_timeout_in =
+  Kino.Input.number("Generation timeout (seconds)", default: 300)
+
+Kino.Layout.grid([llm_url_in, llm_model_in, llm_window_in, llm_timeout_in], columns: 2)
+```
+
+````elixir
+llm_base_url = Kino.Input.read(llm_url_in) |> String.trim_trailing("/")
+llm_model = Kino.Input.read(llm_model_in) |> String.trim()
+llm_window = Kino.Input.read(llm_window_in)
+llm_timeout_ms = (Kino.Input.read(llm_timeout_in) || 300) * 1_000
+
+selected_payload =
+  case llm_window do
+    :daily -> daily_payload
+    :weekly -> weekly_payload
+  end
+
+selected_json = Jason.encode!(selected_payload, pretty: true)
+
+llm_prompt_text =
+  if has_payload_placeholder? do
+    String.replace(prompt_template, payload_placeholder, selected_json)
+  else
+    prompt_template <> "\n\nJSON payload:\n" <> selected_json
+  end
+
+Kino.render(
+  Kino.Markdown.new(
+    "Sending **#{llm_window}** report to `#{llm_model}` at `#{llm_base_url}` …"
+  )
+)
+
+response =
+  Req.post(
+    "#{llm_base_url}/v1/chat/completions",
+    json: %{
+      model: llm_model,
+      messages: [%{role: "user", content: llm_prompt_text}],
+      stream: false
+    },
+    receive_timeout: llm_timeout_ms
+  )
+
+case response do
+  {:ok, %{status: 200, body: body}} ->
+    content =
+      case body do
+        %{"choices" => [%{"message" => %{"content" => text}} | _]} -> text
+        other -> "Unexpected response shape:\n\n```\n#{inspect(other, pretty: true)}\n```"
+      end
+
+    Kino.Markdown.new(content)
+
+  {:ok, %{status: status, body: body}} ->
+    Kino.Markdown.new("""
+    > **LLM request failed** — HTTP #{status}
+    >
+    > ```
+    > #{inspect(body, pretty: true) |> String.slice(0, 1_000)}
+    > ```
+    """)
+
+  {:error, reason} ->
+    Kino.Markdown.new("""
+    > **LLM request error** — could not reach `#{llm_base_url}`
+    >
+    > ```
+    > #{inspect(reason)}
+    > ```
+    >
+    > Check that Ollama is running and the URL is correct.
+    """)
+end
+````
