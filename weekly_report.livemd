@@ -771,11 +771,6 @@ llm_url_in =
     default: System.get_env("LLM_BASE_URL") || "http://localhost:11434"
   )
 
-llm_model_in =
-  Kino.Input.text("Model name",
-    default: System.get_env("LLM_MODEL") || "qwen2.5:7b"
-  )
-
 llm_window_in =
   Kino.Input.select("Report window to analyse",
       [daily: "Daily", weekly: "Weekly"],
@@ -785,7 +780,47 @@ llm_window_in =
 llm_timeout_in =
   Kino.Input.number("Generation timeout (seconds)", default: 300)
 
-Kino.Layout.grid([llm_url_in, llm_model_in, llm_window_in, llm_timeout_in], columns: 2)
+Kino.render(Kino.Layout.grid([llm_url_in, llm_window_in, llm_timeout_in], columns: 2))
+
+llm_base_url_for_models = Kino.Input.read(llm_url_in) |> String.trim_trailing("/")
+fallback_model = System.get_env("LLM_MODEL") || "qwen2.5:7b"
+
+available_models =
+  case Req.get("#{llm_base_url_for_models}/v1/models", receive_timeout: 10_000) do
+    {:ok, %{status: 200, body: %{"data" => models}}} when is_list(models) ->
+      models
+      |> Enum.map(fn model -> Map.get(model, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    _ ->
+      []
+  end
+
+{model_options, default_model, model_source_message} =
+  if available_models == [] do
+    {
+      [{fallback_model, "#{fallback_model} (fallback default)"}],
+      fallback_model,
+      "Could not load models from `#{llm_base_url_for_models}/v1/models`. Using fallback model input."
+    }
+  else
+    selected_default_model =
+      if fallback_model in available_models, do: fallback_model, else: hd(available_models)
+
+    {
+      Enum.map(available_models, &{&1, &1}),
+      selected_default_model,
+      "Loaded #{length(available_models)} model(s) from `#{llm_base_url_for_models}/v1/models`."
+    }
+  end
+
+Kino.render(Kino.Markdown.new(model_source_message))
+
+llm_model_in = Kino.Input.select("Model", model_options, default: default_model)
+
+Kino.render(llm_model_in)
 ```
 
 ````elixir
