@@ -2,6 +2,10 @@
 .env
 .prompt
 
+# Local prompt templates
+prompts/*
+!prompts/.gitkeep
+
 # Workstream mapping (contains project-specific config)
 workstreams.yaml
 

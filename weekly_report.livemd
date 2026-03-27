@@ -585,32 +585,131 @@ Kino.Markdown.new("""
 
 ```elixir
 cwd = File.cwd!()
-
-prompt_file_candidates = [
-  ".prompt",
-  "/data/.prompt"
-]
-
-prompt_example_candidates = [
-  ".prompt.example",
-  "/data/.prompt.example"
-]
-
-prompt_file_path = Enum.find(prompt_file_candidates, &File.exists?/1)
-prompt_example_file_path = Enum.find(prompt_example_candidates, &File.exists?/1)
 payload_placeholder = "{{REPORT_PAYLOAD_JSON}}"
 
-{prompt_template, prompt_source} =
+build_prompt_text = fn prompt_template, payload_json ->
+  if String.contains?(prompt_template, payload_placeholder) do
+    String.replace(prompt_template, payload_placeholder, payload_json)
+  else
+    prompt_template <> "\n\nJSON payload:\n" <> payload_json
+  end
+end
+
+prompt_dir_files =
+  ["prompts", "/data/prompts"]
+  |> Enum.filter(&File.dir?/1)
+  |> Enum.flat_map(fn dir ->
+    File.ls!(dir)
+    |> Enum.reject(&(&1 == ".gitkeep"))
+    |> Enum.map(&Path.join("prompts", &1))
+  end)
+  |> Enum.uniq()
+  |> Enum.sort()
+
+file_sources =
+  [
+    %{
+      id: "root:.prompt",
+      label: ".prompt (root, backward compatible)",
+      paths: [".prompt", "/data/.prompt"],
+      kind: :file
+    }
+  ] ++
+    Enum.map(prompt_dir_files, fn relative_path ->
+      %{
+        id: "file:" <> relative_path,
+        label: relative_path,
+        paths: [relative_path, Path.join("/data", relative_path)],
+        kind: :file
+      }
+    end) ++
+    [
+      %{
+        id: "root:.prompt.example",
+        label: ".prompt.example (fallback example)",
+        paths: [".prompt.example", "/data/.prompt.example"],
+        kind: :file
+      }
+    ]
+
+file_sources =
+  Enum.filter(file_sources, fn source ->
+    Enum.any?(source.paths, &File.regular?/1)
+  end)
+
+built_in_source = %{
+  id: "built-in",
+  label: "Built-in reminder",
+  kind: :built_in,
+  template:
+    "Create .prompt or add a file under prompts/ and keep {{REPORT_PAYLOAD_JSON}} where the report JSON should be injected."
+}
+
+manual_source = %{
+  id: "manual",
+  label: "Manual prompt",
+  kind: :manual
+}
+
+selectable_sources = file_sources ++ [built_in_source, manual_source]
+
+default_source_id =
   cond do
-    is_binary(prompt_file_path) ->
-      {File.read!(prompt_file_path), prompt_file_path}
+    Enum.any?(file_sources, &(&1.id == "root:.prompt")) -> "root:.prompt"
+    Enum.any?(file_sources, &(&1.id == "root:.prompt.example")) -> "root:.prompt.example"
+    file_sources != [] -> hd(file_sources).id
+    true -> built_in_source.id
+  end
 
-    is_binary(prompt_example_file_path) ->
-      {File.read!(prompt_example_file_path), prompt_example_file_path}
+Kino.render(
+  Kino.Markdown.new("""
+  ### Prompt Template Selection
 
-    true ->
-      {"Create .prompt from .prompt.example and optionally add {{REPORT_PAYLOAD_JSON}}.",
-       "built-in fallback"}
+  Choose a prompt file from `prompts/`, keep using the backward-compatible `.prompt`, or switch to **Manual prompt**.
+
+  Reminder: keep `#{payload_placeholder}` in the template where the report JSON should be inserted. If it is missing, the notebook appends the JSON payload automatically.
+  """)
+)
+
+prompt_source_in =
+  Kino.Input.select(
+    "Prompt source",
+    Enum.map(selectable_sources, &{&1.id, &1.label}),
+    default: default_source_id
+  )
+
+manual_prompt_in =
+  Kino.Input.textarea(
+    "Manual prompt (used only when 'Manual prompt' is selected)",
+    default: ""
+  )
+
+Kino.render(Kino.Layout.grid([prompt_source_in, manual_prompt_in], columns: 1))
+
+selected_source_id = Kino.Input.read(prompt_source_in)
+manual_prompt = Kino.Input.read(manual_prompt_in) |> String.trim()
+
+selected_source =
+  Enum.find(selectable_sources, &(&1.id == selected_source_id)) || built_in_source
+
+{prompt_template, prompt_source} =
+  case selected_source.kind do
+    :file ->
+      resolved_path = Enum.find(selected_source.paths, &File.regular?/1)
+      {File.read!(resolved_path), resolved_path}
+
+    :manual ->
+      template =
+        if manual_prompt == "" do
+          "Write your manual prompt here and keep {{REPORT_PAYLOAD_JSON}} where the report JSON should be inserted."
+        else
+          manual_prompt
+        end
+
+      {template, "manual prompt"}
+
+    :built_in ->
+      {selected_source.template, selected_source.label}
   end
 
 has_payload_placeholder? = String.contains?(prompt_template, payload_placeholder)
@@ -630,11 +729,7 @@ else
 end
 
 llm_prompt =
-  if has_payload_placeholder? do
-    String.replace(prompt_template, payload_placeholder, report_json)
-  else
-    prompt_template <> "\n\nJSON payload:\n" <> report_json
-  end
+  build_prompt_text.(prompt_template, report_json)
 
 Kino.Markdown.new("""
 ### Prompt To Copy Into ChatGPT (or similar)
@@ -708,11 +803,7 @@ selected_payload =
 selected_json = Jason.encode!(selected_payload, pretty: true)
 
 llm_prompt_text =
-  if has_payload_placeholder? do
-    String.replace(prompt_template, payload_placeholder, selected_json)
-  else
-    prompt_template <> "\n\nJSON payload:\n" <> selected_json
-  end
+  build_prompt_text.(prompt_template, selected_json)
 
 Kino.render(
   Kino.Markdown.new(

@@ -22,7 +22,7 @@ Livebook notebooks for analyzing team activity from YouTrack. Visualize work tim
 - **LLM-ready JSON payload** for product and engineering lead summaries
 - **Cycle time starts** at transition from inactive/no-state to active work
 - **Net active time** excludes periods tagged as hold/blocked
-- **Prompt template from file** using `.prompt` (fallback `.prompt.example`)
+- **Selectable prompt source** from `prompts/`, backward-compatible `.prompt`, or manual input
 
 ## Prerequisites
 
@@ -121,14 +121,15 @@ Set `LLM_BASE_URL` and `LLM_MODEL` env vars to pre-fill the notebook inputs.
 
 ### Weekly Prompt Template Configuration
 
-The weekly report notebook reads the LLM prompt from a file:
+The weekly report notebook lets you choose the LLM prompt source before generating the final prompt:
 
-1. Create `.prompt` from `.prompt.example`
-2. Edit `.prompt` to match your reporting style
+1. Add local prompt templates under `prompts/`, or keep using the backward-compatible root `.prompt`
+2. Pick a discovered file from the notebook dropdown, or switch to manual prompt input
 3. Keep `{{REPORT_PAYLOAD_JSON}}` in the template if you want inline substitution
 4. If the placeholder is missing, the JSON payload is appended automatically at the end
+5. Everything under `prompts/` is gitignored except `prompts/.gitkeep`, so local prompt variants stay out of the repo
 
-This keeps prompt text versionable while allowing local customization in `.prompt`.
+This keeps prompt text easy to iterate on locally while preserving a simple root `.prompt` fallback.
 
 ### Tips
 
