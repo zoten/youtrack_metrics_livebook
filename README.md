@@ -48,6 +48,9 @@ cp workstreams.example.yaml workstreams.yaml
 docker compose up
 # docker compose up -d
 
+# First run downloads Livebook/Mix dependencies into Docker volumes.
+# Later container recreations reuse that cache automatically.
+
 # 5. Open http://localhost:8080 in your browser
 ```
 
@@ -146,6 +149,28 @@ The notebooks use a local Mix project (`youtrack/`) for shared modules:
 cd youtrack
 mix deps.get
 mix test
+```
+
+## Docker Dependency Cache
+
+The Livebook service persists these directories as Docker named volumes:
+
+- `/home/livebook/.mix`
+- `/home/livebook/.hex`
+- `/home/livebook/.cache`
+
+That means Hex packages, Mix metadata, and compiled dependency cache survive `docker compose down` and later `docker compose up` runs.
+
+Use the default stop command to keep the cache:
+
+```bash
+docker compose down
+```
+
+Remove the volumes only when you want a cold start and dependency re-download:
+
+```bash
+docker compose down -v
 ```
 
 ## Stopping

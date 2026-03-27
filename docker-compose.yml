@@ -1,6 +1,6 @@
 services:
   livebook:
-    image: ghcr.io/livebook-dev/livebook:0.19.3
+    image: ghcr.io/livebook-dev/livebook:0.19.5
     ports:
       - "8080:8080"
     env_file:
@@ -12,12 +12,20 @@ services:
     volumes:
       - .:/data
       - ./youtrack:/home/livebook/youtrack
+      - livebook_mix:/home/livebook/.mix
+      - livebook_hex:/home/livebook/.hex
+      - livebook_cache:/home/livebook/.cache
     working_dir: /data
   
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - /usr/share/ollama/.ollama:/root/.ollama
-    restart: unless-stopped
+  #ollama:
+  #  image: ollama/ollama:latest
+  #  ports:
+  #    - "11434:11434"
+  #  volumes:
+  #    - /usr/share/ollama/.ollama:/root/.ollama
+  #  restart: unless-stopped
+
+volumes:
+  livebook_mix:
+  livebook_hex:
+  livebook_cache:
