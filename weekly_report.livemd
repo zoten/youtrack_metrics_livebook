@@ -414,7 +414,7 @@ Kino.Layout.tabs([
 
 ## Build LLM-Ready Report Payload
 
-```elixir
+````elixir
 format_ts = fn
   nil -> nil
   ms -> DateTime.from_unix!(div(ms, 1000)) |> DateTime.to_iso8601()
@@ -573,17 +573,146 @@ report_payload = %{
 }
 
 report_json = Jason.encode!(report_payload, pretty: true)
+daily_json = Jason.encode!(daily_payload, pretty: true)
+weekly_json = Jason.encode!(weekly_payload, pretty: true)
 
-Kino.Markdown.new("""
-### LLM Payload (JSON)
-#{report_json}
-""")
+preview_limit_in =
+  Kino.Input.number("JSON preview max chars", default: 4_000)
 
-```
+window_for_payload_in =
+  Kino.Input.select("Payload window for quick preview/copy",
+    [daily: "Daily", weekly: "Weekly"],
+    default: :daily
+  )
 
-## Suggested Prompt For Product + Engineering Leads
+show_full_payload_in =
+  Kino.Input.checkbox("Show full report JSON inline (can be very large)", default: false)
 
-```elixir
+Kino.render(Kino.Layout.grid([preview_limit_in, window_for_payload_in, show_full_payload_in], columns: 2))
+
+preview_limit = max(Kino.Input.read(preview_limit_in) || 4_000, 500)
+selected_payload_window = Kino.Input.read(window_for_payload_in)
+show_full_payload? = Kino.Input.read(show_full_payload_in)
+
+selected_payload_json =
+  case selected_payload_window do
+    :weekly -> weekly_json
+    _ -> daily_json
+  end
+
+truncate_text = fn text, limit ->
+  if String.length(text) <= limit do
+    text
+  else
+    String.slice(text, 0, limit) <> "\n... (truncated, use copy/download for full content)"
+  end
+end
+
+copy_download_widget = fn id, label, text, filename ->
+  encoded = Base.encode64(text)
+
+  Kino.HTML.new("""
+  <div id="#{id}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0;">
+    <button type="button" data-copy="#{id}">Copy #{label}</button>
+    <a href="#" data-download="#{id}" style="text-decoration:none;">Download #{filename}</a>
+    <span data-status="#{id}" style="font-size:12px;color:#555;"></span>
+  </div>
+  <script>
+  (() => {
+    const encoded = "#{encoded}";
+    const text = atob(encoded);
+    const root = document.getElementById("#{id}");
+    if (!root) return;
+
+    const copyBtn = root.querySelector('[data-copy="#{id}"]');
+    const downloadLink = root.querySelector('[data-download="#{id}"]');
+    const status = root.querySelector('[data-status="#{id}"]');
+
+    const setStatus = (message) => {
+      if (status) status.textContent = message;
+    };
+
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            setStatus('Copied.');
+          } else {
+            throw new Error('Clipboard API unavailable');
+          }
+        } catch (_) {
+          const area = document.createElement('textarea');
+          area.value = text;
+          document.body.appendChild(area);
+          area.select();
+
+          try {
+            document.execCommand('copy');
+            setStatus('Copied (fallback).');
+          } catch (_err) {
+            setStatus('Copy blocked. Use download link.');
+          }
+
+          document.body.removeChild(area);
+        }
+      });
+    }
+
+    if (downloadLink) {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url;
+      downloadLink.download = "#{filename}";
+    }
+  })();
+  </script>
+  """)
+end
+
+summary_rows =
+  [
+    %{window: "Daily", issues: daily_payload.metrics.issues_touched, completed: daily_payload.metrics.completed_in_window},
+    %{window: "Weekly", issues: weekly_payload.metrics.issues_touched, completed: weekly_payload.metrics.completed_in_window}
+  ]
+
+payload_tabs = [
+  {"Summary", Kino.DataTable.new(summary_rows, keys: [:window, :issues, :completed], name: "Report Summary")},
+  {"Selected JSON Preview", Kino.Markdown.new("""
+  Window: **#{selected_payload_window}**
+  #{truncate_text.(selected_payload_json, preview_limit)}
+  """)},
+  {"Payload Tree", Kino.Layout.tabs([
+    {"Weekly payload", Kino.Tree.new(weekly_payload)},
+    {"Daily payload", Kino.Tree.new(daily_payload)}
+  ])},
+  {"Copy / Download", Kino.Layout.grid([
+    Kino.Markdown.new("Use copy for one-click clipboard and download as a browser-safe fallback."),
+    copy_download_widget.("copy-full-report-json", "full report JSON", report_json, "weekly-delivery-report.json"),
+    copy_download_widget.("copy-selected-window-json", "selected window JSON", selected_payload_json, "weekly-delivery-#{selected_payload_window}.json"),
+    Kino.Download.new(fn -> report_json end, filename: "weekly-delivery-report.json", label: "Download full report JSON")
+  ], columns: 1)}
+]
+
+if show_full_payload? do
+  payload_tabs =
+    payload_tabs ++
+      [
+        {"Full Report JSON", Kino.Markdown.new("""
+        ```json
+        #{report_json}
+        ```
+        """)}
+      ]
+
+  Kino.Layout.tabs(payload_tabs)
+else
+  Kino.Layout.tabs(payload_tabs)
+end
+
+````
+
+````elixir
 cwd = File.cwd!()
 payload_placeholder = "{{REPORT_PAYLOAD_JSON}}"
 
@@ -731,97 +860,53 @@ end
 llm_prompt =
   build_prompt_text.(prompt_template, report_json)
 
-Kino.Markdown.new("""
-### Prompt To Copy Into ChatGPT (or similar)
+prompt_preview_limit_in =
+  Kino.Input.number("Prompt preview max chars", default: 4_000)
 
-Template source: #{prompt_source}
+show_full_prompt_in =
+  Kino.Input.checkbox("Show full prompt inline (can be very large)", default: false)
 
-#{llm_prompt}
-""")
+Kino.render(Kino.Layout.grid([prompt_preview_limit_in, show_full_prompt_in], columns: 2))
 
-```
+prompt_preview_limit = max(Kino.Input.read(prompt_preview_limit_in) || 4_000, 500)
+show_full_prompt? = Kino.Input.read(show_full_prompt_in)
 
-## Run with Local LLM
+prompt_preview = truncate_text.(llm_prompt, prompt_preview_limit)
 
-> **Optional section.** Requires a running [Ollama](https://ollama.com) instance (local or remote)
-> exposing the OpenAI-compatible `/v1/chat/completions` endpoint. Works equally with
-> LM Studio, llama.cpp server, or any other OpenAI-compat backend.
-> 
-> ### Suggested models
-> 
-> **CPU / iGPU (≤16 GB RAM)**
-> 
-> | Model         | Ollama tag        | ~RAM   | Notes                                  |
-> | ------------- | ----------------- | ------ | -------------------------------------- |
-> | Llama 3.2 3B  | `llama3.2:3b`     | 2 GB   | Fast; good for quick summaries         |
-> | Qwen2.5 7B Q4 | `qwen2.5:7b`      | 4.5 GB | Good quality/speed balance             |
-> | Phi-4 14B Q4  | `phi4:14b-q4_K_M` | 9 GB   | Stronger reasoning; needs ≥16 GB RAM |
-> 
-> **GPU (≥16 GB VRAM)**
-> 
-> | Model              | Ollama tag                    | ~VRAM  | Notes                                   |
-> | ------------------ | ----------------------------- | ------ | --------------------------------------- |
-> | **Qwen2.5 32B Q4** | `qwen2.5:32b-instruct-q4_K_M` | ~19 GB | Recommended for best quality            |
-> | Qwen2.5 32B Q5     | `qwen2.5:32b-instruct-q5_K_M` | ~22 GB | Higher fidelity                         |
-> | DeepSeek-R1 32B Q4 | `deepseek-r1:32b-q4_K_M`      | ~19 GB | Reasoning model; more analytical output |
+prompt_tabs = [
+  {"Prompt Preview", Kino.Markdown.new("""
+  ### Prompt To Copy Into ChatGPT (or similar)
 
-```elixir
-llm_url_in =
-  Kino.Input.text("Ollama / OpenAI-compat base URL",
-    default: System.get_env("LLM_BASE_URL") || "http://localhost:11434"
-  )
+  Template source: #{prompt_source}
+  
+  #{prompt_preview}
 
-llm_window_in =
-  Kino.Input.select("Report window to analyse",
-      [daily: "Daily", weekly: "Weekly"],
-    default: :daily
-  )
+  """)},
+  {"Copy / Download", Kino.Layout.grid([
+    copy_download_widget.("copy-final-prompt", "final prompt", llm_prompt, "weekly-delivery-prompt.txt"),
+    Kino.Download.new(fn -> llm_prompt end, filename: "weekly-delivery-prompt.txt", label: "Download final prompt")
+  ], columns: 1)}
+]
 
-llm_timeout_in =
-  Kino.Input.number("Generation timeout (seconds)", default: 300)
+if show_full_prompt? do
+  prompt_tabs =
+    prompt_tabs ++
+      [
+        {"Full Prompt", Kino.Markdown.new("""
+        ```text
+        #{llm_prompt}
+        ```
+        """)}
+      ]
 
-Kino.render(Kino.Layout.grid([llm_url_in, llm_window_in, llm_timeout_in], columns: 2))
+  Kino.Layout.tabs(prompt_tabs)
+else
+  Kino.Layout.tabs(prompt_tabs)
+end
 
-llm_base_url_for_models = Kino.Input.read(llm_url_in) |> String.trim_trailing("/")
-fallback_model = System.get_env("LLM_MODEL") || "qwen2.5:7b"
+````
 
-available_models =
-  case Req.get("#{llm_base_url_for_models}/v1/models", receive_timeout: 10_000) do
-    {:ok, %{status: 200, body: %{"data" => models}}} when is_list(models) ->
-      models
-      |> Enum.map(fn model -> Map.get(model, "id") end)
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    _ ->
-      []
-  end
-
-{model_options, default_model, model_source_message} =
-  if available_models == [] do
-    {
-      [{fallback_model, "#{fallback_model} (fallback default)"}],
-      fallback_model,
-      "Could not load models from `#{llm_base_url_for_models}/v1/models`. Using fallback model input."
-    }
-  else
-    selected_default_model =
-      if fallback_model in available_models, do: fallback_model, else: hd(available_models)
-
-    {
-      Enum.map(available_models, &{&1, &1}),
-      selected_default_model,
-      "Loaded #{length(available_models)} model(s) from `#{llm_base_url_for_models}/v1/models`."
-    }
-  end
-
-Kino.render(Kino.Markdown.new(model_source_message))
-
-llm_model_in = Kino.Input.select("Model", model_options, default: default_model)
-
-Kino.render(llm_model_in)
-```
+<!-- livebook:{"force_markdown":true} -->
 
 ````elixir
 llm_base_url = Kino.Input.read(llm_url_in) |> String.trim_trailing("/")
@@ -888,3 +973,61 @@ case response do
     """)
 end
 ````
+
+```elixir
+llm_url_in =
+  Kino.Input.text("Ollama / OpenAI-compat base URL",
+    default: System.get_env("LLM_BASE_URL") || "http://localhost:11434"
+  )
+
+llm_window_in =
+  Kino.Input.select("Report window to analyse",
+      [daily: "Daily", weekly: "Weekly"],
+    default: :daily
+  )
+
+llm_timeout_in =
+  Kino.Input.number("Generation timeout (seconds)", default: 300)
+
+Kino.render(Kino.Layout.grid([llm_url_in, llm_window_in, llm_timeout_in], columns: 2))
+
+llm_base_url_for_models = Kino.Input.read(llm_url_in) |> String.trim_trailing("/")
+fallback_model = System.get_env("LLM_MODEL") || "qwen2.5:7b"
+
+available_models =
+  case Req.get("#{llm_base_url_for_models}/v1/models", receive_timeout: 10_000) do
+    {:ok, %{status: 200, body: %{"data" => models}}} when is_list(models) ->
+      models
+      |> Enum.map(fn model -> Map.get(model, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    _ ->
+      []
+  end
+
+{model_options, default_model, model_source_message} =
+  if available_models == [] do
+    {
+      [{fallback_model, "#{fallback_model} (fallback default)"}],
+      fallback_model,
+      "Could not load models from `#{llm_base_url_for_models}/v1/models`. Using fallback model input."
+    }
+  else
+    selected_default_model =
+      if fallback_model in available_models, do: fallback_model, else: hd(available_models)
+
+    {
+      Enum.map(available_models, &{&1, &1}),
+      selected_default_model,
+      "Loaded #{length(available_models)} model(s) from `#{llm_base_url_for_models}/v1/models`."
+    }
+  end
+
+Kino.render(Kino.Markdown.new(model_source_message))
+
+llm_model_in = Kino.Input.select("Model", model_options, default: default_model)
+
+Kino.render(llm_model_in)
+```
