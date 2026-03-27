@@ -377,6 +377,41 @@ Kino.Markdown.new(
 )
 ```
 
+## Issue Signals Table
+
+```elixir
+signals_table = fn summaries, label ->
+  rows =
+    Enum.map(summaries, fn s ->
+      %{
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        assignees: Enum.join(s.assignees, ", "),
+        cycle_time: WeeklyReport.format_duration(s.cycle_time_ms),
+        net_active_time: WeeklyReport.format_duration(s.net_active_time_ms),
+        desc_changed: if(s.description_updated_in_window, do: "✓", else: ""),
+        comments: length(s.comments_in_window),
+        state_changes: length(s.state_changes_in_window)
+      }
+    end)
+
+  Kino.Layout.grid([
+    Kino.Markdown.new("### #{label}"),
+    Kino.DataTable.new(
+      rows,
+      keys: [:id, :title, :status, :assignees, :cycle_time, :net_active_time, :desc_changed, :comments, :state_changes],
+      name: label
+    )
+  ])
+end
+
+Kino.Layout.tabs([
+  {"Weekly (#{length(weekly_summaries)})", signals_table.(weekly_summaries, "Weekly Issues")},
+  {"Daily (#{length(daily_summaries)})", signals_table.(daily_summaries, "Daily Issues")}
+])
+```
+
 ## Build LLM-Ready Report Payload
 
 ```elixir
