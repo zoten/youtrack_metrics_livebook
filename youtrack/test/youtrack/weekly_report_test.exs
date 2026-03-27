@@ -336,6 +336,48 @@ defmodule Youtrack.WeeklyReportTest do
       # Hold overlaps active in [2_000_000, 3_000_000] and [4_000_000, 5_000_000] => 2_000_000 paused.
       assert result == 2_000_000
     end
+
+    test "handles map-shaped state and tag activity payloads" do
+      activities = [
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => %{"name" => "on hold"},
+          "removed" => [],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [],
+          "removed" => %{"name" => "on hold"},
+          "timestamp" => 5_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => %{"name" => "To Do"},
+          "removed" => %{"name" => "In Progress"},
+          "timestamp" => 3_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => %{"name" => "In Progress"},
+          "removed" => %{"name" => "To Do"},
+          "timestamp" => 4_000_000
+        }
+      ]
+
+      result =
+        WeeklyReport.net_active_time(
+          @start_ms,
+          @end_ms,
+          activities,
+          ["on hold"],
+          "State",
+          ["To Do", "Todo"],
+          ["Done", "Won't Do"]
+        )
+
+      assert result == 2_000_000
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -553,6 +595,40 @@ defmodule Youtrack.WeeklyReportTest do
 
       assert summary.inactive_interruption_intervals == [
                %{start_ms: 3_000_000, end_ms: 4_000_000, duration_ms: 1_000_000}
+             ]
+    end
+
+    test "uses map-shaped state activities when computing cycle and net active time" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => %{"name" => "In Progress"},
+          "removed" => %{"name" => "To Do"},
+          "timestamp" => 1_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => %{"name" => "To Do"},
+          "removed" => %{"name" => "In Progress"},
+          "timestamp" => 3_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => %{"name" => "In Progress"},
+          "removed" => %{"name" => "To Do"},
+          "timestamp" => 4_000_000
+        }
+      ]
+
+      issue = make_issue(%{"created" => 0, "resolved" => 6_000_000})
+      summary = WeeklyReport.build_issue_summary(issue, activities)
+
+      assert summary.cycle_time_ms == 5_000_000
+      assert summary.net_active_time_ms == 4_000_000
+
+      assert summary.active_time_intervals == [
+               %{start_ms: 1_000_000, end_ms: 3_000_000, duration_ms: 2_000_000},
+               %{start_ms: 4_000_000, end_ms: 6_000_000, duration_ms: 2_000_000}
              ]
     end
 

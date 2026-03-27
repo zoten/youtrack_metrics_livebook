@@ -356,17 +356,22 @@ defmodule Youtrack.WeeklyReport do
   # ---------------------------------------------------------------------------
 
   defp hold_names(names_list, hold_lower) do
-    (names_list || [])
-    |> Enum.map(fn item -> item["name"] end)
-    |> Enum.filter(&is_binary/1)
+    names_list
+    |> extract_names()
     |> Enum.filter(&(String.downcase(&1) in hold_lower))
     |> MapSet.new()
   end
 
   defp extract_names(nil), do: []
 
-  defp extract_names(list) when is_list(list) do
-    list |> Enum.map(& &1["name"]) |> Enum.filter(&is_binary/1)
+  defp extract_names(values) do
+    values
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{"name" => name} when is_binary(name) -> [name]
+      name when is_binary(name) -> [name]
+      _ -> []
+    end)
   end
 
   defp description_activity?(activity) do
