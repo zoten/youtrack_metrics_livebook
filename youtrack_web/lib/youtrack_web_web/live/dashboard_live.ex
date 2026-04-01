@@ -2,7 +2,6 @@ defmodule YoutrackWeb.DashboardLive do
   use YoutrackWeb, :live_view
 
   alias YoutrackWeb.Configuration
-  alias YoutrackWeb.ChartSpecs
 
   @impl true
   def mount(_params, _session, socket) do
@@ -15,18 +14,7 @@ defmodule YoutrackWeb.DashboardLive do
      |> assign(:page_title, "YouTrack Metrics")
      |> assign(:config, defaults)
      |> assign(:config_form, to_form(defaults, as: :config))
-     |> assign(:sections, Configuration.sections())
-     |> assign(:current_section, Configuration.section("flow_metrics"))
-     # Add sample charts for display
-     |> assign(:sample_bar_spec, ChartSpecs.sample_bar_chart())
-     |> assign(:sample_line_spec, ChartSpecs.sample_line_chart())}
-  end
-
-  @impl true
-  def handle_params(params, _uri, socket) do
-    section = Configuration.section(Map.get(params, "section", "flow_metrics"))
-
-    {:noreply, assign(socket, :current_section, section)}
+     |> assign(:sections, Configuration.sections())}
   end
 
   @impl true
@@ -43,6 +31,16 @@ defmodule YoutrackWeb.DashboardLive do
   end
 
   @impl true
+  def handle_event("chart_rendered", _params, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("chart_error", _params, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -54,8 +52,8 @@ defmodule YoutrackWeb.DashboardLive do
               <div class="space-y-2">
                 <h1 class="metrics-brand text-4xl leading-none text-stone-50">YouTrack Metrics</h1>
                 <p class="max-w-xs text-sm leading-6 text-stone-300">
-                  A Phoenix shell for the livebooks, using the same shared `youtrack/` library,
-                  workstream rules, and local-first configuration.
+                  One shared control surface for the live YouTrack views: keep defaults here,
+                  then jump into the section that answers the question you actually have.
                 </p>
               </div>
             </div>
@@ -64,15 +62,8 @@ defmodule YoutrackWeb.DashboardLive do
               <%= for section <- @sections do %>
                 <.link
                   id={"nav-#{section.id}"}
-                  patch={~p"/?section=#{section.id}"}
-                  aria-current={if(@current_section.id == section.id, do: "page", else: nil)}
-                  class={[
-                    "metrics-link block rounded-3xl border px-4 py-3",
-                    if(@current_section.id == section.id,
-                      do: "border-orange-300/60 bg-orange-300/12 text-stone-50",
-                      else: "border-white/8 bg-white/3 text-stone-300 hover:border-orange-200/30 hover:bg-white/6"
-                    )
-                  ]}
+                  navigate={section_path(section.id)}
+                  class="metrics-link block rounded-3xl border border-white/8 bg-white/3 px-4 py-3 text-stone-300 hover:border-orange-200/30 hover:bg-white/6"
                 >
                   <div class="flex items-start justify-between gap-4">
                     <div>
@@ -112,25 +103,50 @@ defmodule YoutrackWeb.DashboardLive do
         <section class="metrics-content">
           <div class="mx-auto max-w-7xl space-y-6">
             <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
-              <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                <div class="max-w-3xl space-y-4">
+              <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] xl:items-end">
+                <div class="max-w-3xl space-y-5">
                   <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">
-                    Section currently being wired
+                    Dashboard home
                   </p>
                   <div class="space-y-3">
-                    <h2 id="current-section-title" class="metrics-brand text-5xl leading-none text-stone-50">
-                      {@current_section.label}
+                    <h2 id="dashboard-home-title" class="metrics-brand text-5xl leading-none text-stone-50">
+                      Choose a live workflow
                     </h2>
                     <p class="max-w-2xl text-base leading-7 text-stone-300">
-                      {@current_section.description}
+                      The scaffold is gone. Each route below opens a working LiveView that can fetch,
+                      compute, and render actual YouTrack-backed results with the shared configuration
+                      shown on this page.
                     </p>
+                  </div>
+
+                  <div class="flex flex-wrap gap-2">
+                    <span class="rounded-full border border-orange-200/20 bg-orange-200/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-orange-100">
+                      Shared defaults
+                    </span>
+                    <span class="rounded-full border border-white/10 bg-white/6 px-3 py-2 text-xs uppercase tracking-[0.18em] text-stone-200">
+                      Real routes
+                    </span>
+                    <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-emerald-200">
+                      Ready sections
+                    </span>
                   </div>
                 </div>
 
-                <div class="metrics-grid w-full lg:max-w-2xl">
-                  <.stat_card label="Visual scope" value={@current_section.visuals} tone="accent" />
+                <div class="space-y-4">
+                  <div class="rounded-[1.75rem] border border-white/10 bg-black/15 p-5">
+                    <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Fast path</p>
+                    <ol class="mt-4 space-y-3 text-sm leading-6 text-stone-200">
+                      <li>Review shared paths and environment-backed defaults.</li>
+                      <li>Pick the page that matches the analysis you need.</li>
+                      <li>Run the fetch/build action there to render real data.</li>
+                    </ol>
+                  </div>
+
+                  <div class="metrics-grid w-full">
+                  <.stat_card label="Sections" value={to_string(length(@sections))} tone="accent" />
                   <.stat_card label="Shared source" value="youtrack/ library" tone="neutral" />
-                  <.stat_card label="State" value={@current_section.stage} tone="success" />
+                    <.stat_card label="Entry state" value="Operational" tone="success" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -196,23 +212,42 @@ defmodule YoutrackWeb.DashboardLive do
                 </section>
 
                 <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Sample visualization</p>
-                  <h3 class="mt-2 text-xl font-semibold text-stone-50 mb-4">VegaLite integration test</h3>
-                  <.chart
-                    id="sample-bar-chart"
-                    spec={@sample_bar_spec}
-                    class="h-72"
-                  />
-                </section>
-
-                <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Current slice</p>
-                  <h3 class="mt-2 text-2xl font-semibold text-stone-50">What this section will expose</h3>
-                  <div class="mt-5 flex flex-wrap gap-3">
-                    <%= for highlight <- @current_section.highlights do %>
-                      <span class="rounded-full border border-orange-200/20 bg-orange-200/8 px-3 py-2 text-sm text-orange-100">
-                        {highlight}
-                      </span>
+                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Sections</p>
+                  <h3 class="mt-2 text-2xl font-semibold text-stone-50">Open a live view</h3>
+                  <p class="mt-2 max-w-2xl text-sm leading-6 text-stone-300">
+                    These cards are direct entry points, not placeholders. Open the page that matches
+                    the decision you need to make.
+                  </p>
+                  <div class="mt-5 grid gap-4 md:grid-cols-2">
+                    <%= for section <- @sections do %>
+                      <div class="rounded-[1.5rem] border border-white/10 bg-white/5 p-4 transition hover:border-orange-200/30 hover:bg-white/7">
+                        <div class="flex items-start justify-between gap-4">
+                          <div>
+                            <h4 class="text-lg font-semibold text-stone-50">{section.label}</h4>
+                            <p class="mt-1 text-xs uppercase tracking-[0.2em] text-orange-200/70">
+                              {section.visuals}
+                            </p>
+                            <p class="mt-2 text-sm leading-6 text-stone-300">{section.description}</p>
+                          </div>
+                          <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-200">
+                            {section.stage}
+                          </span>
+                        </div>
+                        <div class="mt-4 flex flex-wrap gap-2">
+                          <%= for highlight <- section.highlights do %>
+                            <span class="rounded-full border border-orange-200/20 bg-orange-200/8 px-3 py-2 text-xs text-orange-100">
+                              {highlight}
+                            </span>
+                          <% end %>
+                        </div>
+                        <.link
+                          id={"open-#{section.id}"}
+                          navigate={section_path(section.id)}
+                          class="mt-5 inline-flex rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300"
+                        >
+                          Open {section.label}
+                        </.link>
+                      </div>
                     <% end %>
                   </div>
                 </section>
@@ -220,17 +255,23 @@ defmodule YoutrackWeb.DashboardLive do
 
               <aside class="space-y-6">
                 <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Implementation notes</p>
-                  <ul class="mt-4 space-y-3 text-sm leading-6 text-stone-300">
-                    <li>Shared runtime defaults are now read from environment variables and exposed to LiveView.</li>
-                    <li>The Phoenix shell has replaced the default landing page and routes directly to a dashboard LiveView.</li>
-                    <li>The next slice is wiring the first section to real `youtrack/` fetch pipelines and VegaLite specs.</li>
-                  </ul>
+                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Working model</p>
+                  <div class="mt-4 space-y-4 text-sm leading-6 text-stone-300">
+                    <div class="rounded-2xl border border-white/8 bg-white/4 p-4">
+                      Defaults are loaded from environment variables and prefilled into every section form.
+                    </div>
+                    <div class="rounded-2xl border border-white/8 bg-white/4 p-4">
+                      This page is intentionally narrow: choose a route here, do the actual analysis there.
+                    </div>
+                    <div class="rounded-2xl border border-white/8 bg-white/4 p-4">
+                      Section pages own the real fetch, cache, chart, and report flows against YouTrack data.
+                    </div>
+                  </div>
                 </section>
 
                 <section class="metrics-card rounded-[2rem] p-6">
                   <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Preview</p>
-                  <h3 class="mt-2 text-xl font-semibold text-stone-50">Config snapshot</h3>
+                  <h3 class="mt-2 text-xl font-semibold text-stone-50">Effective config snapshot</h3>
                   <div class="metrics-code mt-4 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs leading-6 text-orange-100">
                     <pre>{Jason.encode_to_iodata!(@config, pretty: true)}</pre>
                   </div>
@@ -263,4 +304,10 @@ defmodule YoutrackWeb.DashboardLive do
   defp stat_card_classes("accent"), do: "border-orange-200/30 bg-orange-200/10"
   defp stat_card_classes("success"), do: "border-emerald-200/25 bg-emerald-200/10"
   defp stat_card_classes(_tone), do: "border-white/10 bg-white/5"
+
+  defp section_path("flow_metrics"), do: ~p"/flow-metrics"
+  defp section_path("gantt"), do: ~p"/gantt"
+  defp section_path("pairing"), do: ~p"/pairing"
+  defp section_path("weekly_report"), do: ~p"/weekly-report"
+  defp section_path(_), do: ~p"/flow-metrics"
 end

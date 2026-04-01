@@ -31,19 +31,14 @@ export default {
             }
 
             vegaEmbed.default(this.el, specObj, options)
-                .then(result => {
-                    // Emit event to notify backend of successful render
-                    this.pushEvent("chart_rendered", { id: this.el.id })
-                })
+                .then(_result => { })
                 .catch(error => {
                     console.error("Error rendering Vega-Lite spec:", error)
                     this.el.innerHTML = `<div class="text-red-500 p-4">Error rendering chart: ${error.message}</div>`
-                    this.pushEvent("chart_error", { id: this.el.id, error: error.message })
                 })
         } catch (error) {
             console.error("Invalid JSON spec:", error)
             this.el.innerHTML = `<div class="text-red-500 p-4">Invalid chart specification</div>`
-            this.pushEvent("chart_error", { id: this.el.id, error: error.message })
         }
     }
 }

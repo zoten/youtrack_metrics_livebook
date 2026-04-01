@@ -5,7 +5,7 @@ defmodule YoutrackWeb.Configuration do
     %{
       id: "flow_metrics",
       label: "Flow Metrics",
-      stage: "Scaffolding",
+      stage: "Ready",
       visuals: "21 visualizations",
       description: "Progress, energy, togetherness, autonomy, and PETALS scorecards.",
       highlights: ["Throughput", "Cycle time", "WIP", "Rework", "Rotation"]
@@ -13,7 +13,7 @@ defmodule YoutrackWeb.Configuration do
     %{
       id: "gantt",
       label: "Gantt",
-      stage: "Scaffolding",
+      stage: "Ready",
       visuals: "7 visualizations",
       description: "Person timelines, interrupt analysis, and live workstream classification.",
       highlights: ["Timeline", "Interrupt mix", "Daily patterns", "Classifier"]
@@ -21,7 +21,7 @@ defmodule YoutrackWeb.Configuration do
     %{
       id: "pairing",
       label: "Pairing",
-      stage: "Scaffolding",
+      stage: "Ready",
       visuals: "10 visualizations",
       description: "Pair matrices, pairing trends, and firefighter detection.",
       highlights: ["Pair heatmap", "Trend by week", "Firefighters", "Interrupts"]
@@ -29,7 +29,7 @@ defmodule YoutrackWeb.Configuration do
     %{
       id: "weekly_report",
       label: "Weekly Report",
-      stage: "Scaffolding",
+      stage: "Ready",
       visuals: "Structured payload",
       description: "Signals tables, prompt previews, and local LLM summary generation.",
       highlights: ["JSON payload", "Prompt templates", "Copy/download", "LLM response"]
@@ -42,9 +42,5 @@ defmodule YoutrackWeb.Configuration do
 
   def sections do
     @sections
-  end
-
-  def section(section_id) do
-    Enum.find(@sections, hd(@sections), &(&1.id == section_id))
   end
 end

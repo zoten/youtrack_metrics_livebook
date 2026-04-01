@@ -7,18 +7,17 @@ defmodule YoutrackWeb.DashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "#shared-config-form")
-    assert has_element?(view, "#nav-flow_metrics[aria-current='page']")
-    assert has_element?(view, "#current-section-title")
+    assert has_element?(view, "#nav-flow_metrics")
+    assert has_element?(view, "#dashboard-home-title", "Choose a live workflow")
+    assert has_element?(view, "#open-flow_metrics")
   end
 
-  test "switches sections through live patch navigation", %{conn: conn} do
+  test "shows direct links to implemented pages", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
-    view
-    |> element("#nav-pairing")
-    |> render_click()
-
-    assert has_element?(view, "#nav-pairing[aria-current='page']")
-    assert has_element?(view, "#current-section-title", "Pairing")
+    assert render(view) =~ "/flow-metrics"
+    assert render(view) =~ "/gantt"
+    assert render(view) =~ "/pairing"
+    assert render(view) =~ "/weekly-report"
   end
 end

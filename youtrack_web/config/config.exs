@@ -20,7 +20,7 @@ config :youtrack_web, YoutrackWeb.Endpoint,
     formats: [html: YoutrackWeb.ErrorHTML, json: YoutrackWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Youtrack.PubSub,
+  pubsub_server: YoutrackWeb.PubSub,
   live_view: [signing_salt: "hQJYJvgz"]
 
 # Configure the mailer

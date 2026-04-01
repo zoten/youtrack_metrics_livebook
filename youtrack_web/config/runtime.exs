@@ -1,5 +1,71 @@
 import Config
 
+dotenv_paths = [
+  Path.expand("../../.env", __DIR__),
+  Path.expand("../.env", __DIR__)
+]
+
+parse_env_line = fn line ->
+  trimmed = String.trim(line)
+
+  cond do
+    trimmed == "" ->
+      :skip
+
+    String.starts_with?(trimmed, "#") ->
+      :skip
+
+    true ->
+      normalized =
+        if String.starts_with?(trimmed, "export ") do
+          String.trim_leading(trimmed, "export ")
+        else
+          trimmed
+        end
+
+      case String.split(normalized, "=", parts: 2) do
+        [key, value] ->
+          env_key = String.trim(key)
+
+          env_value =
+            value
+            |> String.trim()
+            |> String.trim_leading("\"")
+            |> String.trim_trailing("\"")
+            |> String.trim_leading("'")
+            |> String.trim_trailing("'")
+
+          if env_key == "" do
+            :skip
+          else
+            {env_key, env_value}
+          end
+
+        _ ->
+          :skip
+      end
+  end
+end
+
+Enum.each(dotenv_paths, fn path ->
+  if File.exists?(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.each(fn line ->
+      case parse_env_line.(line) do
+        {key, value} ->
+          if is_nil(System.get_env(key)) do
+            System.put_env(key, value)
+          end
+
+        :skip ->
+          :ok
+      end
+    end)
+  end
+end)
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
