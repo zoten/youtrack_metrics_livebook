@@ -29,8 +29,7 @@ defmodule YoutrackWeb.PairingLive do
 
     if connected?(socket), do: send(self(), :maybe_auto_fetch)
 
-    {:ok,
-     socket}
+    {:ok, socket}
   end
 
   @impl true
@@ -490,7 +489,7 @@ defmodule YoutrackWeb.PairingLive do
         />
 
       <section class="metrics-content">
-        <div class="mx-auto max-w-7xl space-y-6 pb-10">
+        <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -551,18 +550,22 @@ defmodule YoutrackWeb.PairingLive do
           </div>
 
           <%= if map_size(@chart_specs) > 0 do %>
-            <div class="grid gap-6">
-              <.chart_card id="pairing-matrix-chart" title="Pair Matrix" spec={@chart_specs.pair_matrix} class="h-[34rem]" />
-              <.chart_card id="pairing-trend-chart" title="Pairing Trend" spec={@chart_specs.pairing_trend} class="h-96" />
-              <.chart_card id="pairing-workstream-chart" title="Pairing by Workstream" spec={@chart_specs.pairing_by_workstream} class="h-96" />
-              <.chart_card id="pairing-top-pairs-chart" title="Top Pairs" spec={@chart_specs.top_pairs} class="h-96" />
-              <.chart_card id="pairing-firefighter-person-chart" title="Firefighters by Person" spec={@chart_specs.firefighter_person} class="h-96" />
-              <.chart_card id="pairing-firefighter-pair-chart" title="Firefighters by Pair" spec={@chart_specs.firefighter_pair} class="h-96" />
-              <.chart_card id="pairing-interrupt-aggregate-chart" title="Interrupt Trend (Aggregate)" spec={@chart_specs.interrupt_aggregate} class="h-96" />
-              <.chart_card id="pairing-interrupt-person-chart" title="Interrupt Trend by Person" spec={@chart_specs.interrupt_person} class="h-96" />
-              <.chart_card id="pairing-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
-              <.chart_card id="pairing-involvement-chart" title="Pair Involvement by Person" spec={@chart_specs.involvement_by_person} class="h-96" />
-              <.chart_card id="pairing-by-project-chart" title="Pairing by Project" spec={@chart_specs.pairing_by_project} class="h-96" />
+            <div class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
+              <.chart_toc title="Pairing Charts" items={chart_nav_items()} />
+
+              <div class="grid gap-6 md:grid-cols-2">
+                <.chart_card id="pairing-matrix-chart" title="Pair Matrix" spec={@chart_specs.pair_matrix} wrapper_class="md:col-span-2" class="h-[34rem]" />
+                <.chart_card id="pairing-trend-chart" title="Pairing Trend" spec={@chart_specs.pairing_trend} wrapper_class="md:col-span-2" />
+                <.chart_card id="pairing-workstream-chart" title="Pairing by Workstream" spec={@chart_specs.pairing_by_workstream} class="h-96" />
+                <.chart_card id="pairing-top-pairs-chart" title="Top Pairs" spec={@chart_specs.top_pairs} class="h-96" />
+                <.chart_card id="pairing-firefighter-person-chart" title="Firefighters by Person" spec={@chart_specs.firefighter_person} class="h-96" />
+                <.chart_card id="pairing-firefighter-pair-chart" title="Firefighters by Pair" spec={@chart_specs.firefighter_pair} class="h-96" />
+                <.chart_card id="pairing-interrupt-aggregate-chart" title="Interrupt Trend (Aggregate)" spec={@chart_specs.interrupt_aggregate} class="h-96" />
+                <.chart_card id="pairing-interrupt-person-chart" title="Interrupt Trend by Person" spec={@chart_specs.interrupt_person} wrapper_class="md:col-span-2" />
+                <.chart_card id="pairing-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
+                <.chart_card id="pairing-involvement-chart" title="Pair Involvement by Person" spec={@chart_specs.involvement_by_person} class="h-96" />
+                <.chart_card id="pairing-by-project-chart" title="Pairing by Project" spec={@chart_specs.pairing_by_project} class="h-96" />
+              </div>
             </div>
           <% end %>
         </div>
@@ -603,6 +606,22 @@ defmodule YoutrackWeb.PairingLive do
   defp cache_state_label(:refresh), do: "refresh"
   defp cache_state_label(%{source: source}), do: cache_state_label(source)
   defp cache_state_label(_), do: "unknown"
+
+  defp chart_nav_items do
+    [
+      %{id: "pairing-matrix-chart", title: "Pair Matrix"},
+      %{id: "pairing-trend-chart", title: "Pairing Trend"},
+      %{id: "pairing-workstream-chart", title: "Pairing by Workstream"},
+      %{id: "pairing-top-pairs-chart", title: "Top Pairs"},
+      %{id: "pairing-firefighter-person-chart", title: "Firefighters by Person"},
+      %{id: "pairing-firefighter-pair-chart", title: "Firefighters by Pair"},
+      %{id: "pairing-interrupt-aggregate-chart", title: "Interrupt Trend (Aggregate)"},
+      %{id: "pairing-interrupt-person-chart", title: "Interrupt Trend by Person"},
+      %{id: "pairing-planned-unplanned-chart", title: "Planned vs Unplanned"},
+      %{id: "pairing-involvement-chart", title: "Pair Involvement by Person"},
+      %{id: "pairing-by-project-chart", title: "Pairing by Project"}
+    ]
+  end
 
   defp load_rules("") do
     {rules, _path} = WorkstreamsLoader.load_from_default_paths()

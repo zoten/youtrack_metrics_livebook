@@ -76,18 +76,42 @@ defmodule YoutrackWeb.Components.Charts do
   attr(:spec, :map, required: true)
   attr(:description, :string, default: nil)
   attr(:class, :string, default: "h-96")
+  attr(:wrapper_class, :string, default: nil)
 
   def chart_card(assigns) do
     ~H"""
-    <div class="metrics-card">
+    <div class={["metrics-card", @wrapper_class]}>
       <div class="mb-4">
         <h3 class="text-lg font-semibold text-stone-100">{@title}</h3>
           <%= if @description do %>
             <p class="text-sm text-stone-400 mt-1">{@description}</p>
           <% end %>
       </div>
-      <.chart id={@id} spec={@spec} class={@class} />
+      <.chart id={@id} spec={@spec} class={"w-full #{@class}"} />
     </div>
+    """
+  end
+
+  attr(:items, :list, required: true)
+  attr(:title, :string, default: "Charts")
+
+  def chart_toc(assigns) do
+    ~H"""
+    <details class="metrics-card rounded-[2rem] p-4 lg:sticky lg:top-6" open>
+      <summary class="cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.22em] text-orange-100">
+        {@title}
+      </summary>
+      <nav aria-label="Chart table of contents" class="mt-4 space-y-2">
+        <%= for item <- @items do %>
+          <a
+            href={"##{item.id}"}
+            class="block rounded-xl border border-white/8 bg-white/3 px-3 py-2 text-sm text-stone-200 hover:border-orange-300/30 hover:bg-white/6 hover:text-orange-100"
+          >
+            {item.title}
+          </a>
+        <% end %>
+      </nav>
+    </details>
     """
   end
 end

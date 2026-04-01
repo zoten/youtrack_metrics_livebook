@@ -49,8 +49,7 @@ defmodule YoutrackWeb.GanttLive do
 
     if connected?(socket), do: send(self(), :maybe_auto_fetch)
 
-    {:ok,
-     socket}
+    {:ok, socket}
   end
 
   @impl true
@@ -644,7 +643,7 @@ defmodule YoutrackWeb.GanttLive do
         <.metrics_sidebar config={@config} active_section="gantt" freshness={@fetch_cache_state} />
 
       <section class="metrics-content">
-        <div class="mx-auto max-w-7xl space-y-6 pb-10">
+        <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -744,14 +743,18 @@ defmodule YoutrackWeb.GanttLive do
           <% end %>
 
           <%= if map_size(@chart_specs) > 0 do %>
-            <div class="grid gap-6">
-              <.chart_card id="gantt-main-chart" title="Team Gantt" spec={@chart_specs.gantt} class="h-[32rem]" />
-              <.chart_card id="gantt-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
-              <.chart_card id="gantt-unplanned-person-chart" title="Unplanned by Person" spec={@chart_specs.unplanned_person} class="h-96" />
-              <.chart_card id="gantt-unplanned-stream-chart" title="Unplanned by Workstream" spec={@chart_specs.unplanned_stream} class="h-96" />
-              <.chart_card id="gantt-interrupts-weekday-chart" title="Interrupts by Weekday" spec={@chart_specs.interrupts_weekday} class="h-80" />
-              <.chart_card id="gantt-interrupts-monthday-chart" title="Interrupts by Monthday" spec={@chart_specs.interrupts_monthday} class="h-80" />
-              <.chart_card id="gantt-unclassified-slug-chart" title="Unclassified Slugs" spec={@chart_specs.unclassified_slug} class="h-80" />
+            <div class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
+              <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
+
+              <div class="grid gap-6 md:grid-cols-2">
+                <.chart_card id="gantt-main-chart" title="Team Gantt" spec={@chart_specs.gantt} wrapper_class="md:col-span-2" class="h-[32rem]" />
+                <.chart_card id="gantt-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
+                <.chart_card id="gantt-unplanned-person-chart" title="Unplanned by Person" spec={@chart_specs.unplanned_person} class="h-96" />
+                <.chart_card id="gantt-unplanned-stream-chart" title="Unplanned by Workstream" spec={@chart_specs.unplanned_stream} class="h-96" />
+                <.chart_card id="gantt-interrupts-weekday-chart" title="Interrupts by Weekday" spec={@chart_specs.interrupts_weekday} class="h-80" />
+                <.chart_card id="gantt-interrupts-monthday-chart" title="Interrupts by Monthday" spec={@chart_specs.interrupts_monthday} class="h-80" />
+                <.chart_card id="gantt-unclassified-slug-chart" title="Unclassified Slugs" spec={@chart_specs.unclassified_slug} class="h-80" />
+              </div>
             </div>
           <% end %>
         </div>
@@ -789,6 +792,18 @@ defmodule YoutrackWeb.GanttLive do
   defp cache_state_label(:refresh), do: "refresh"
   defp cache_state_label(%{source: source}), do: cache_state_label(source)
   defp cache_state_label(_), do: "unknown"
+
+  defp chart_nav_items do
+    [
+      %{id: "gantt-main-chart", title: "Team Gantt"},
+      %{id: "gantt-planned-unplanned-chart", title: "Planned vs Unplanned"},
+      %{id: "gantt-unplanned-person-chart", title: "Unplanned by Person"},
+      %{id: "gantt-unplanned-stream-chart", title: "Unplanned by Workstream"},
+      %{id: "gantt-interrupts-weekday-chart", title: "Interrupts by Weekday"},
+      %{id: "gantt-interrupts-monthday-chart", title: "Interrupts by Monthday"},
+      %{id: "gantt-unclassified-slug-chart", title: "Unclassified Slugs"}
+    ]
+  end
 
   defp iso8601_ms(ms) when is_integer(ms) do
     ms |> div(1000) |> DateTime.from_unix!() |> DateTime.to_iso8601()

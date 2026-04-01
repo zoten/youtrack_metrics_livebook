@@ -19,6 +19,12 @@ export default {
 
         try {
             const specObj = JSON.parse(spec)
+            // Force responsive width so charts fill their container instead of using
+            // the hardcoded pixel widths from the Elixir spec generators.
+            specObj.width = "container"
+            if (specObj.autosize == null) {
+                specObj.autosize = { type: "fit", contains: "padding" }
+            }
             const options = {
                 actions: {
                     export: true,

@@ -36,8 +36,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
 
     if connected?(socket), do: send(self(), :maybe_auto_fetch)
 
-    {:ok,
-     socket}
+    {:ok, socket}
   end
 
   @impl true
@@ -832,7 +831,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
         />
 
       <section class="metrics-content">
-        <div class="mx-auto max-w-7xl space-y-6 pb-10">
+        <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -912,27 +911,31 @@ defmodule YoutrackWeb.FlowMetricsLive do
           </div>
 
           <%= if map_size(@chart_specs) > 0 do %>
-            <div class="grid gap-6">
-              <.chart_card id="chart-throughput" title="Throughput" description="Completed items per week." spec={@chart_specs.throughput} class="h-96" />
-              <.chart_card id="chart-throughput-person" title="Throughput by Person" spec={@chart_specs.throughput_by_person} class="h-96" />
-              <.chart_card id="chart-cycle-hist" title="Cycle Time Distribution" spec={@chart_specs.cycle_histogram} class="h-96" />
-              <.chart_card id="chart-cycle-stream" title="Cycle Time by Stream" spec={@chart_specs.cycle_by_stream} class="h-96" />
-              <.chart_card id="chart-wip-person" title="WIP by Person" spec={@chart_specs.wip_by_person} class="h-96" />
-              <.chart_card id="chart-wip-stream" title="WIP by Stream" spec={@chart_specs.wip_by_stream} class="h-96" />
-              <.chart_card id="chart-context-avg" title="Context Switching Index" spec={@chart_specs.context_switch_avg} class="h-96" />
-              <.chart_card id="chart-context-heat" title="Context Switching Heatmap" spec={@chart_specs.context_switch_heatmap} class="h-96" />
-              <.chart_card id="chart-bus-factor" title="Bus Factor" spec={@chart_specs.bus_factor} class="h-96" />
-              <.chart_card id="chart-long-running" title="Long Running Ongoing Items" spec={@chart_specs.long_running} class="h-96" />
-              <.chart_card id="chart-rotation-switches" title="Rotation Switches" spec={@chart_specs.rotation_switches} class="h-96" />
-              <.chart_card id="chart-rotation-tenure" title="Rotation Tenure" spec={@chart_specs.rotation_tenure} class="h-96" />
-              <.chart_card id="chart-rotation-person-stream" title="Person × Week Activity" spec={@chart_specs.rotation_person_stream} class="h-96" />
-              <.chart_card id="chart-rotation-stream-tenure" title="Stream Tenure" spec={@chart_specs.rotation_stream_tenure} class="h-96" />
-              <%= if @chart_specs.rework_by_stream do %>
-                <.chart_card id="chart-rework-stream" title="Rework by Stream" spec={@chart_specs.rework_by_stream} class="h-96" />
-              <% end %>
-              <.chart_card id="chart-unplanned-stream" title="Unplanned by Stream" spec={@chart_specs.unplanned_by_stream} class="h-96" />
-              <.chart_card id="chart-unplanned-person" title="Unplanned by Person" spec={@chart_specs.unplanned_by_person} class="h-96" />
-              <.chart_card id="chart-unplanned-trend" title="Unplanned Trend" spec={@chart_specs.unplanned_trend} class="h-96" />
+            <div class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
+              <.chart_toc title="Flow Charts" items={chart_nav_items(@chart_specs)} />
+
+              <div class="grid gap-6 md:grid-cols-2">
+                <.chart_card id="chart-throughput" title="Throughput" description="Completed items per week." spec={@chart_specs.throughput} class="h-96" />
+                <.chart_card id="chart-throughput-person" title="Throughput by Person" spec={@chart_specs.throughput_by_person} class="h-96" />
+                <.chart_card id="chart-cycle-hist" title="Cycle Time Distribution" spec={@chart_specs.cycle_histogram} class="h-96" />
+                <.chart_card id="chart-cycle-stream" title="Cycle Time by Stream" spec={@chart_specs.cycle_by_stream} class="h-96" />
+                <.chart_card id="chart-wip-person" title="WIP by Person" spec={@chart_specs.wip_by_person} class="h-96" />
+                <.chart_card id="chart-wip-stream" title="WIP by Stream" spec={@chart_specs.wip_by_stream} class="h-96" />
+                <.chart_card id="chart-context-avg" title="Context Switching Index" spec={@chart_specs.context_switch_avg} class="h-96" />
+                <.chart_card id="chart-context-heat" title="Context Switching Heatmap" spec={@chart_specs.context_switch_heatmap} wrapper_class="md:col-span-2" />
+                <.chart_card id="chart-bus-factor" title="Bus Factor" spec={@chart_specs.bus_factor} class="h-96" />
+                <.chart_card id="chart-long-running" title="Long Running Ongoing Items" spec={@chart_specs.long_running} class="h-96" />
+                <.chart_card id="chart-rotation-switches" title="Rotation Switches" spec={@chart_specs.rotation_switches} class="h-96" />
+                <.chart_card id="chart-rotation-tenure" title="Rotation Tenure" spec={@chart_specs.rotation_tenure} class="h-96" />
+                <.chart_card id="chart-rotation-person-stream" title="Person × Week Activity" spec={@chart_specs.rotation_person_stream} wrapper_class="md:col-span-2" />
+                <.chart_card id="chart-rotation-stream-tenure" title="Stream Tenure" spec={@chart_specs.rotation_stream_tenure} wrapper_class="md:col-span-2" />
+                <%= if @chart_specs.rework_by_stream do %>
+                  <.chart_card id="chart-rework-stream" title="Rework by Stream" spec={@chart_specs.rework_by_stream} class="h-96" />
+                <% end %>
+                <.chart_card id="chart-unplanned-stream" title="Unplanned by Stream" spec={@chart_specs.unplanned_by_stream} class="h-96" />
+                <.chart_card id="chart-unplanned-person" title="Unplanned by Person" spec={@chart_specs.unplanned_by_person} class="h-96" />
+                <.chart_card id="chart-unplanned-trend" title="Unplanned Trend" spec={@chart_specs.unplanned_trend} class="h-96" />
+              </div>
             </div>
           <% end %>
         </div>
@@ -973,6 +976,35 @@ defmodule YoutrackWeb.FlowMetricsLive do
   defp cache_state_label(:refresh), do: "refresh"
   defp cache_state_label(%{source: source}), do: cache_state_label(source)
   defp cache_state_label(_), do: "unknown"
+
+  defp chart_nav_items(chart_specs) do
+    [
+      %{id: "chart-throughput", title: "Throughput"},
+      %{id: "chart-throughput-person", title: "Throughput by Person"},
+      %{id: "chart-cycle-hist", title: "Cycle Time Distribution"},
+      %{id: "chart-cycle-stream", title: "Cycle Time by Stream"},
+      %{id: "chart-wip-person", title: "WIP by Person"},
+      %{id: "chart-wip-stream", title: "WIP by Stream"},
+      %{id: "chart-context-avg", title: "Context Switching Index"},
+      %{id: "chart-context-heat", title: "Context Switching Heatmap"},
+      %{id: "chart-bus-factor", title: "Bus Factor"},
+      %{id: "chart-long-running", title: "Long Running Ongoing Items"},
+      %{id: "chart-rotation-switches", title: "Rotation Switches"},
+      %{id: "chart-rotation-tenure", title: "Rotation Tenure"},
+      %{id: "chart-rotation-person-stream", title: "Person × Week Activity"},
+      %{id: "chart-rotation-stream-tenure", title: "Stream Tenure"},
+      %{id: "chart-rework-stream", title: "Rework by Stream", optional: :rework_by_stream},
+      %{id: "chart-unplanned-stream", title: "Unplanned by Stream"},
+      %{id: "chart-unplanned-person", title: "Unplanned by Person"},
+      %{id: "chart-unplanned-trend", title: "Unplanned Trend"}
+    ]
+    |> Enum.filter(fn item ->
+      case Map.get(item, :optional) do
+        nil -> true
+        key -> not is_nil(Map.get(chart_specs, key))
+      end
+    end)
+  end
 
   defp avg_cycle_days(cycle_time_data) do
     cycle_time_data

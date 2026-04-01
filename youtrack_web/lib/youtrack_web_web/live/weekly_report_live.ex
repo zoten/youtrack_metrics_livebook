@@ -63,8 +63,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
     if connected?(socket), do: send(self(), :maybe_auto_fetch)
 
-    {:ok,
-     socket}
+    {:ok, socket}
   end
 
   @impl true
@@ -586,7 +585,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
         />
 
       <section class="metrics-content">
-        <div class="mx-auto max-w-7xl space-y-6 pb-10">
+        <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>

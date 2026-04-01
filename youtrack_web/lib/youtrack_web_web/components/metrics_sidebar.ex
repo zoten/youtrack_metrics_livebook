@@ -5,9 +5,9 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
 
   alias YoutrackWeb.Configuration
 
-  attr :config, :map, required: true
-  attr :active_section, :string, default: nil
-  attr :freshness, :any, default: nil
+  attr(:config, :map, required: true)
+  attr(:active_section, :string, default: nil)
+  attr(:freshness, :any, default: nil)
 
   def metrics_sidebar(assigns) do
     assigns =
