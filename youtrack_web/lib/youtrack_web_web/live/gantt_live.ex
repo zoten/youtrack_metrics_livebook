@@ -29,23 +29,28 @@ defmodule YoutrackWeb.GanttLive do
     defaults = Configuration.defaults()
     rules = load_rules(defaults["workstreams_path"] || "")
 
+    socket =
+      socket
+      |> assign(:current_scope, nil)
+      |> assign(:page_title, "Gantt")
+      |> assign(:config_open?, true)
+      |> assign(:loading?, false)
+      |> assign(:fetch_error, nil)
+      |> assign(:fetch_cache_state, nil)
+      |> assign(:config, defaults)
+      |> assign(:config_form, to_form(defaults, as: :config))
+      |> assign(:rules, rules)
+      |> assign(:rules_text, inspect(rules, pretty: true, limit: :infinity))
+      |> assign(:exported_rules, nil)
+      |> assign(:chart_specs, %{})
+      |> assign(:unclassified_stats, [])
+      |> assign(:raw_issues, [])
+      |> assign(:work_items_count, 0)
+
+    if connected?(socket), do: send(self(), :maybe_auto_fetch)
+
     {:ok,
-     socket
-     |> assign(:current_scope, nil)
-     |> assign(:page_title, "Gantt")
-     |> assign(:config_open?, true)
-     |> assign(:loading?, false)
-     |> assign(:fetch_error, nil)
-     |> assign(:fetch_cache_state, nil)
-     |> assign(:config, defaults)
-     |> assign(:config_form, to_form(defaults, as: :config))
-     |> assign(:rules, rules)
-     |> assign(:rules_text, inspect(rules, pretty: true, limit: :infinity))
-     |> assign(:exported_rules, nil)
-     |> assign(:chart_specs, %{})
-     |> assign(:unclassified_stats, [])
-     |> assign(:raw_issues, [])
-     |> assign(:work_items_count, 0)}
+     socket}
   end
 
   @impl true
@@ -146,6 +151,27 @@ defmodule YoutrackWeb.GanttLive do
      socket
      |> assign(:loading?, false)
      |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_info(:maybe_auto_fetch, socket) do
+    cond do
+      socket.assigns.loading? ->
+        {:noreply, socket}
+
+      map_size(socket.assigns.chart_specs) > 0 ->
+        {:noreply, socket}
+
+      validate_config(socket.assigns.config) != :ok ->
+        {:noreply, socket}
+
+      true ->
+        {:noreply,
+         socket
+         |> assign(:loading?, true)
+         |> assign(:fetch_error, nil)
+         |> start_fetch_task(socket.assigns.config, socket.assigns.rules_text, false)}
+    end
   end
 
   defp start_fetch_task(socket, config, rules_text, refresh?) do
@@ -614,6 +640,9 @@ defmodule YoutrackWeb.GanttLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div class="metrics-shell">
+        <.metrics_sidebar config={@config} active_section="gantt" freshness={@fetch_cache_state} />
+
       <section class="metrics-content">
         <div class="mx-auto max-w-7xl space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
@@ -624,7 +653,6 @@ defmodule YoutrackWeb.GanttLive do
                 <p class="mt-3 text-stone-300">Timelines, interrupts, and interactive stream classification.</p>
               </div>
               <div class="flex gap-2">
-                <.link navigate={~p"/"} class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">Back</.link>
                 <button id="toggle-gantt-config" type="button" phx-click="toggle_config" class="rounded-lg border border-orange-300/30 bg-orange-300/10 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/20">
                   {if(@config_open?, do: "Hide config", else: "Show config")}
                 </button>
@@ -728,6 +756,7 @@ defmodule YoutrackWeb.GanttLive do
           <% end %>
         </div>
       </section>
+      </div>
     </Layouts.app>
     """
   end
@@ -758,6 +787,7 @@ defmodule YoutrackWeb.GanttLive do
   defp cache_state_label(:hit), do: "cache hit"
   defp cache_state_label(:miss), do: "cache miss"
   defp cache_state_label(:refresh), do: "refresh"
+  defp cache_state_label(%{source: source}), do: cache_state_label(source)
   defp cache_state_label(_), do: "unknown"
 
   defp iso8601_ms(ms) when is_integer(ms) do

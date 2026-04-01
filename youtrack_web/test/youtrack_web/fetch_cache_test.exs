@@ -17,18 +17,23 @@ defmodule YoutrackWeb.FetchCacheTest do
 
     assert first == "value-1"
     assert second == "value-1"
-    assert first_state == :miss
-    assert second_state == :hit
+    assert first_state.source == :miss
+    assert is_integer(first_state.fetched_at_ms)
+    assert second_state.source == :hit
+    assert is_integer(second_state.fetched_at_ms)
   end
 
   test "refresh option bypasses cache" do
-    {:ok, _value, :miss} =
+    {:ok, _value, initial_state} =
       FetchCache.get_or_fetch(:refresh_key, fn -> "old" end, ttl_ms: 60_000)
+
+    assert initial_state.source == :miss
 
     {:ok, refreshed, refreshed_state} =
       FetchCache.get_or_fetch(:refresh_key, fn -> "new" end, ttl_ms: 60_000, refresh: true)
 
     assert refreshed == "new"
-    assert refreshed_state == :refresh
+    assert refreshed_state.source == :refresh
+    assert is_integer(refreshed_state.fetched_at_ms)
   end
 end

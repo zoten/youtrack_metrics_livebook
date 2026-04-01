@@ -88,6 +88,7 @@ defmodule YoutrackWeb do
       import YoutrackWeb.CoreComponents
       # Chart components (VegaLite rendering)
       import YoutrackWeb.Components.Charts
+      import YoutrackWeb.Components.MetricsSidebar
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

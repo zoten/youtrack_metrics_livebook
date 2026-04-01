@@ -33,8 +33,11 @@ defmodule YoutrackWeb.FetchCache do
       fetch_and_store(key, fetch_fun, now, ttl_ms, :refresh)
     else
       case :ets.lookup(@table, key) do
+        [{^key, expires_at, fetched_at, value}] when expires_at > now ->
+          {:ok, value, %{source: :hit, fetched_at_ms: fetched_at, expires_at_ms: expires_at}}
+
         [{^key, expires_at, value}] when expires_at > now ->
-          {:ok, value, :hit}
+          {:ok, value, %{source: :hit, fetched_at_ms: now, expires_at_ms: expires_at}}
 
         _ ->
           fetch_and_store(key, fetch_fun, now, ttl_ms, :miss)
@@ -49,8 +52,9 @@ defmodule YoutrackWeb.FetchCache do
 
   defp fetch_and_store(key, fetch_fun, now, ttl_ms, cache_state) do
     value = fetch_fun.()
-    :ets.insert(@table, {key, now + ttl_ms, value})
-    {:ok, value, cache_state}
+    expires_at = now + ttl_ms
+    :ets.insert(@table, {key, expires_at, now, value})
+    {:ok, value, %{source: cache_state, fetched_at_ms: now, expires_at_ms: expires_at}}
   end
 
   defp ttl_from_config_ms do

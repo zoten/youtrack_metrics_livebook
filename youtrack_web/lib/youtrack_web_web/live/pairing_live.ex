@@ -14,18 +14,23 @@ defmodule YoutrackWeb.PairingLive do
   def mount(_params, _session, socket) do
     defaults = Configuration.defaults()
 
+    socket =
+      socket
+      |> assign(:current_scope, nil)
+      |> assign(:page_title, "Pairing")
+      |> assign(:config_open?, true)
+      |> assign(:loading?, false)
+      |> assign(:fetch_error, nil)
+      |> assign(:fetch_cache_state, nil)
+      |> assign(:config, defaults)
+      |> assign(:config_form, to_form(defaults, as: :config))
+      |> assign(:chart_specs, %{})
+      |> assign(:metrics, %{})
+
+    if connected?(socket), do: send(self(), :maybe_auto_fetch)
+
     {:ok,
-     socket
-     |> assign(:current_scope, nil)
-     |> assign(:page_title, "Pairing")
-     |> assign(:config_open?, true)
-     |> assign(:loading?, false)
-     |> assign(:fetch_error, nil)
-     |> assign(:fetch_cache_state, nil)
-     |> assign(:config, defaults)
-     |> assign(:config_form, to_form(defaults, as: :config))
-     |> assign(:chart_specs, %{})
-     |> assign(:metrics, %{})}
+     socket}
   end
 
   @impl true
@@ -96,6 +101,27 @@ defmodule YoutrackWeb.PairingLive do
      socket
      |> assign(:loading?, false)
      |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_info(:maybe_auto_fetch, socket) do
+    cond do
+      socket.assigns.loading? ->
+        {:noreply, socket}
+
+      map_size(socket.assigns.chart_specs) > 0 ->
+        {:noreply, socket}
+
+      validate_config(socket.assigns.config) != :ok ->
+        {:noreply, socket}
+
+      true ->
+        {:noreply,
+         socket
+         |> assign(:loading?, true)
+         |> assign(:fetch_error, nil)
+         |> start_fetch_task(socket.assigns.config, false)}
+    end
   end
 
   defp start_fetch_task(socket, config, refresh?) do
@@ -456,6 +482,13 @@ defmodule YoutrackWeb.PairingLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div class="metrics-shell">
+        <.metrics_sidebar
+          config={@config}
+          active_section="pairing"
+          freshness={@fetch_cache_state}
+        />
+
       <section class="metrics-content">
         <div class="mx-auto max-w-7xl space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
@@ -466,7 +499,6 @@ defmodule YoutrackWeb.PairingLive do
                 <p class="mt-3 text-stone-300">Collaboration matrix, firefighter patterns, and interrupt trends.</p>
               </div>
               <div class="flex gap-2">
-                <.link navigate={~p"/"} class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">Back</.link>
                 <button id="toggle-pairing-config" type="button" phx-click="toggle_config" class="rounded-lg border border-orange-300/30 bg-orange-300/10 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/20">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
                 <button id="fetch-pairing-data" type="button" phx-click="fetch_data" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Fetch (cache)</button>
                 <button id="fetch-pairing-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="rounded-lg border border-orange-300/30 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/10">Refresh (API)</button>
@@ -535,6 +567,7 @@ defmodule YoutrackWeb.PairingLive do
           <% end %>
         </div>
       </section>
+      </div>
     </Layouts.app>
     """
   end
@@ -568,6 +601,7 @@ defmodule YoutrackWeb.PairingLive do
   defp cache_state_label(:hit), do: "cache hit"
   defp cache_state_label(:miss), do: "cache miss"
   defp cache_state_label(:refresh), do: "refresh"
+  defp cache_state_label(%{source: source}), do: cache_state_label(source)
   defp cache_state_label(_), do: "unknown"
 
   defp load_rules("") do
