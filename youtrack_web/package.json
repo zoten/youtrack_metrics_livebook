@@ -1,0 +1,21 @@
+{
+  "name": "youtrack-web",
+  "version": "1.0.0",
+  "description": "YouTrack Metrics Dashboard",
+  "scripts": {
+    "deploy": "cd .. && mix assets.deploy",
+    "watch": "esbuild $(cat phoenix_esbuild.exs | grep ~w | cut -d\" \" -f2 | paste -sd,'') --bundle --target=es2017 --outdir=priv/static/assets --external:phoenix --external:phoenix_live_view --external:phoenix_html --loader:.fonts=file --loader:.images=file --watch",
+    "build": "esbuild $(cat phoenix_esbuild.exs | grep ~w | cut -d\" \" -f2 | paste -sd,',') --bundle --target=es2017 --outdir=priv/static/assets --external:phoenix --external:phoenix_live_view --external:phoenix_html --loader:.fonts=file --loader:.images=file"
+  },
+  "dependencies": {
+    "phoenix": "file:./deps/phoenix",
+    "phoenix_html": "file:./deps/phoenix_html",
+    "phoenix_live_view": "file:./deps/phoenix_live_view",
+    "vega": "^5.28.0",
+    "vega-embed": "^6.28.0",
+    "vega-lite": "^5.20.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

@@ -1,0 +1,132 @@
+/* See the Tailwind configuration guide for advanced usage
+   https://tailwindcss.com/docs/configuration */
+
+@import "tailwindcss" source(none);
+@source "../css";
+@source "../js";
+@source "../../lib/youtrack_web_web";
+
+@plugin "../vendor/heroicons";
+
+/* Add variants based on LiveView classes */
+@custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
+@custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
+@custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
+
+/* Use the data attribute for dark mode  */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* Make LiveView wrapper divs transparent for layout */
+[data-phx-session], [data-phx-teleported-src] { display: contents }
+
+:root {
+  color-scheme: dark;
+  --metrics-bg: #161312;
+  --metrics-panel: rgba(35, 27, 25, 0.82);
+  --metrics-panel-strong: rgba(56, 41, 36, 0.94);
+  --metrics-border: rgba(244, 171, 139, 0.18);
+  --metrics-border-strong: rgba(244, 171, 139, 0.34);
+  --metrics-text: #f7efe8;
+  --metrics-muted: #cfb7a9;
+  --metrics-accent: #f97352;
+  --metrics-accent-soft: #ffcf7d;
+  --metrics-ok: #6dcf9f;
+  --metrics-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  --metrics-font: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --metrics-sans: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(249, 115, 82, 0.22), transparent 32%),
+    radial-gradient(circle at right center, rgba(255, 207, 125, 0.16), transparent 26%),
+    linear-gradient(180deg, #161312 0%, #120f0f 100%);
+}
+
+body {
+  color: var(--metrics-text);
+  font-family: var(--metrics-sans);
+}
+
+.app-frame {
+  min-height: 100vh;
+}
+
+.app-main {
+  min-height: 100vh;
+}
+
+.metrics-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: minmax(16rem, 19rem) minmax(0, 1fr);
+}
+
+.metrics-sidebar {
+  position: relative;
+  border-right: 1px solid var(--metrics-border);
+  background: linear-gradient(180deg, rgba(27, 21, 20, 0.96), rgba(18, 15, 15, 0.98));
+}
+
+.metrics-sidebar::after {
+  position: absolute;
+  inset: 1.5rem 1rem auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--metrics-border-strong), transparent);
+  content: "";
+}
+
+.metrics-content {
+  padding: 1.5rem;
+}
+
+.metrics-card {
+  border: 1px solid var(--metrics-border);
+  background: var(--metrics-panel);
+  box-shadow: var(--metrics-shadow);
+  backdrop-filter: blur(14px);
+}
+
+.metrics-card-strong {
+  border: 1px solid var(--metrics-border-strong);
+  background: var(--metrics-panel-strong);
+  box-shadow: var(--metrics-shadow);
+}
+
+.metrics-brand {
+  font-family: var(--metrics-font);
+  letter-spacing: -0.04em;
+}
+
+.metrics-link {
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.metrics-link:hover {
+  transform: translateX(2px);
+}
+
+.metrics-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.metrics-code {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+@media (max-width: 960px) {
+  .metrics-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--metrics-border);
+  }
+}

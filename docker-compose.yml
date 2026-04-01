@@ -16,7 +16,37 @@ services:
       - livebook_hex:/home/livebook/.hex
       - livebook_cache:/home/livebook/.cache
     working_dir: /data
-  
+
+  phoenix:
+    build:
+      context: .
+      dockerfile: youtrack_web/Dockerfile
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - MIX_ENV=prod
+      - PHX_SERVER=true
+      - PHX_HOST=localhost
+      - PORT=4000
+      - DATABASE_PATH=/data/youtrack_web.db
+      - WORKSTREAMS_PATH=/data/workstreams.yaml
+      - PROMPTS_PATH=/data/prompts
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE:-replace-me-in-env}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./workstreams.yaml:/data/workstreams.yaml:ro
+      - ./prompts:/data/prompts:ro
+      - phoenix_data:/data
+      - phoenix_mix:/root/.mix
+      - phoenix_hex:/root/.hex
+      - phoenix_cache:/root/.cache
+    working_dir: /app
+    command: >-
+      sh -lc "bin/youtrack_web eval 'YoutrackWeb.Release.migrate' && bin/youtrack_web start"
+
   #ollama:
   #  image: ollama/ollama:latest
   #  ports:
@@ -29,3 +59,7 @@ volumes:
   livebook_mix:
   livebook_hex:
   livebook_cache:
+  phoenix_mix:
+  phoenix_hex:
+  phoenix_cache:
+  phoenix_data:

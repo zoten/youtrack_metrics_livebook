@@ -1,0 +1,814 @@
+defmodule YoutrackWeb.WeeklyReportLive do
+  @moduledoc """
+  Weekly Report section with payload generation and optional LLM summarization.
+  """
+
+  use YoutrackWeb, :live_view
+
+  alias Youtrack.Client
+  alias Youtrack.WeeklyReport
+  alias Youtrack.Workstreams
+  alias Youtrack.WorkstreamsLoader
+  alias YoutrackWeb.Configuration
+
+  @payload_placeholder "{{REPORT_PAYLOAD_JSON}}"
+
+  @issue_fields [
+    "idReadable",
+    "id",
+    "summary",
+    "description",
+    "created",
+    "updated",
+    "resolved",
+    "project(shortName)",
+    "tags(name)",
+    "comments(id,text,created,author(name,login))",
+    "customFields(name,value(name,login))"
+  ]
+
+  @activity_fields [
+    "id",
+    "timestamp",
+    "category(id)",
+    "author(name,login)",
+    "field(name)",
+    "targetMember",
+    "added",
+    "removed",
+    "markup"
+  ]
+
+  @impl true
+  def mount(_params, _session, socket) do
+    defaults = Configuration.defaults() |> with_report_defaults()
+
+    {:ok,
+     socket
+     |> assign(:current_scope, nil)
+     |> assign(:page_title, "Weekly Report")
+     |> assign(:config_open?, true)
+     |> assign(:loading?, false)
+     |> assign(:llm_loading?, false)
+     |> assign(:fetch_error, nil)
+     |> assign(:fetch_cache_state, nil)
+     |> assign(:llm_error, nil)
+     |> assign(:llm_response, nil)
+     |> assign(:active_tab, "summary")
+     |> assign(:config, defaults)
+     |> assign(:config_form, to_form(defaults, as: :config))
+     |> assign(:report_data, nil)
+     |> assign(:prompt_files, discover_prompt_files(defaults["prompts_path"]))
+     |> assign(:prompt_preview, nil)}
+  end
+
+  @impl true
+  def handle_event("toggle_config", _params, socket) do
+    {:noreply, update(socket, :config_open?, &(!&1))}
+  end
+
+  @impl true
+  def handle_event("config_changed", %{"config" => params}, socket) do
+    prompt_files = discover_prompt_files(params["prompts_path"] || "")
+
+    {:noreply,
+     socket
+     |> assign(:config, params)
+     |> assign(:config_form, to_form(params, as: :config))
+     |> assign(:prompt_files, prompt_files)}
+  end
+
+  @impl true
+  def handle_event("select_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  @impl true
+  def handle_event("build_report", params, socket) do
+    refresh? = params["refresh"] == "true"
+
+    case validate_config(socket.assigns.config) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:loading?, true)
+         |> assign(:fetch_error, nil)
+         |> start_report_task(socket.assigns.config, refresh?)}
+
+      {:error, message} ->
+        {:noreply, assign(socket, :fetch_error, message)}
+    end
+  end
+
+  @impl true
+  def handle_event("clear_cache", _params, socket) do
+    :ok = YoutrackWeb.FetchCache.clear()
+
+    {:noreply,
+     socket
+     |> assign(:fetch_cache_state, nil)
+     |> put_flash(:info, "Cache cleared")}
+  end
+
+  @impl true
+  def handle_event("generate_prompt", _params, socket) do
+    case socket.assigns.report_data do
+      nil ->
+        {:noreply, assign(socket, :fetch_error, "Build report first")}
+
+      report_data ->
+        prompt =
+          build_prompt_text(
+            load_prompt_template(socket.assigns.config, socket.assigns.prompt_files),
+            report_data.report_json
+          )
+
+        {:noreply, assign(socket, :prompt_preview, prompt)}
+    end
+  end
+
+  @impl true
+  def handle_event("send_to_llm", _params, socket) do
+    cond do
+      socket.assigns.report_data == nil ->
+        {:noreply, assign(socket, :llm_error, "Build report first")}
+
+      blank?(socket.assigns.config["llm_base_url"]) ->
+        {:noreply, assign(socket, :llm_error, "LLM base URL is required")}
+
+      blank?(socket.assigns.config["llm_model"]) ->
+        {:noreply, assign(socket, :llm_error, "LLM model is required")}
+
+      true ->
+        {:noreply,
+         socket
+         |> assign(:llm_loading?, true)
+         |> assign(:llm_error, nil)
+         |> start_llm_task(socket.assigns.config, socket.assigns.report_data)}
+    end
+  end
+
+  @impl true
+  def handle_info({ref, {:ok, {:report, report_data}}}, socket) do
+    Process.demonitor(ref, [:flush])
+
+    {:noreply,
+     socket
+     |> assign(:loading?, false)
+     |> assign(:report_data, report_data)
+     |> assign(:fetch_cache_state, Map.get(report_data, :fetch_cache_state))
+     |> assign(:active_tab, "summary")}
+  end
+
+  @impl true
+  def handle_info({ref, {:ok, {:llm, content}}}, socket) do
+    Process.demonitor(ref, [:flush])
+
+    {:noreply,
+     socket
+     |> assign(:llm_loading?, false)
+     |> assign(:llm_response, content)
+     |> assign(:active_tab, "llm")}
+  end
+
+  @impl true
+  def handle_info({ref, {:error, reason}}, socket) do
+    Process.demonitor(ref, [:flush])
+
+    {:noreply,
+     socket
+     |> assign(:loading?, false)
+     |> assign(:llm_loading?, false)
+     |> assign(:fetch_error, to_string(reason))}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:loading?, false)
+     |> assign(:llm_loading?, false)
+     |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
+  end
+
+  defp start_report_task(socket, config, refresh?) do
+    task =
+      Task.Supervisor.async_nolink(YoutrackWeb.TaskSupervisor, fn ->
+        case build_report(config, refresh?) do
+          {:ok, report_data} -> {:ok, {:report, report_data}}
+          {:error, reason} -> {:error, reason}
+        end
+      end)
+
+    assign(socket, :report_task_ref, task.ref)
+  end
+
+  defp start_llm_task(socket, config, report_data) do
+    task =
+      Task.Supervisor.async_nolink(YoutrackWeb.TaskSupervisor, fn ->
+        case call_llm(config, report_data) do
+          {:ok, content} -> {:ok, {:llm, content}}
+          {:error, reason} -> {:error, reason}
+        end
+      end)
+
+    assign(socket, :llm_task_ref, task.ref)
+  end
+
+  defp build_report(config, refresh?) do
+    base_url = config["base_url"] |> to_string() |> String.trim()
+    token = config["token"] |> to_string() |> String.trim()
+    base_query = config["base_query"] |> to_string() |> String.trim()
+
+    state_field = config["state_field"] |> to_string() |> String.trim()
+    assignees_field = config["assignees_field"] |> to_string() |> String.trim()
+    project_prefix = config["project_prefix"] |> to_string() |> String.trim()
+
+    include_substreams? = parse_bool(config["include_substreams"])
+
+    week_start = Date.from_iso8601!(config["report_week_start"])
+    week_end = Date.from_iso8601!(config["report_week_end"])
+    last_working_day = Date.from_iso8601!(config["report_last_working_day"])
+
+    in_progress_names = csv_list(config["in_progress_names"])
+    inactive_names = csv_list(config["report_inactive_states"])
+    done_names = csv_list(config["report_done_states"])
+    special_tags = csv_list(config["report_special_tags"])
+    hold_tags = csv_list(config["report_hold_tags"])
+    activities_categories = config["report_activity_categories"] |> to_string() |> String.trim()
+
+    {workstream_rules, _workstreams_path} =
+      case config["workstreams_path"] do
+        nil ->
+          WorkstreamsLoader.load_from_default_paths()
+
+        "" ->
+          WorkstreamsLoader.load_from_default_paths()
+
+        path ->
+          case WorkstreamsLoader.load_file(path) do
+            {:ok, rules} -> {rules, path}
+            {:error, _} -> WorkstreamsLoader.load_from_default_paths()
+          end
+      end
+
+    query =
+      "#{base_query} updated: #{Date.to_iso8601(week_start)} .. #{Date.to_iso8601(week_end)}"
+
+    req = Client.new!(base_url, token)
+    cache_key = {:weekly_report_issues, base_url, query, @issue_fields}
+
+    {:ok, raw_issues, cache_state} =
+      YoutrackWeb.FetchCache.get_or_fetch(
+        cache_key,
+        fn -> Client.fetch_issues!(req, query, fields: @issue_fields) end,
+        refresh: refresh?
+      )
+
+    issues = filter_by_project_prefix(raw_issues, project_prefix)
+
+    activity_map =
+      issues
+      |> Task.async_stream(
+        fn issue ->
+          acts =
+            Client.fetch_activities!(req, issue["id"],
+              categories: activities_categories,
+              fields: @activity_fields
+            )
+
+          {issue["id"], acts}
+        end,
+        max_concurrency: 8,
+        timeout: :infinity,
+        ordered: false
+      )
+      |> Enum.reduce(%{}, fn
+        {:ok, {id, acts}}, acc -> Map.put(acc, id, acts)
+        _, acc -> acc
+      end)
+
+    issue_workstreams =
+      issues
+      |> Enum.map(fn issue ->
+        streams =
+          Workstreams.streams_for_issue(issue, workstream_rules,
+            include_substreams: include_substreams?
+          )
+          |> Enum.sort()
+
+        {issue["id"], streams}
+      end)
+      |> Map.new()
+
+    weekly_start_ms = to_start_ms(week_start)
+    weekly_end_ms = to_end_ms(week_end)
+    daily_start_ms = to_start_ms(last_working_day)
+    daily_end_ms = to_end_ms(last_working_day)
+
+    build_summary = fn issue, window_start_ms, window_end_ms ->
+      WeeklyReport.build_issue_summary(
+        issue,
+        Map.get(activity_map, issue["id"], []),
+        state_field: state_field,
+        assignees_field: assignees_field,
+        in_progress_names: in_progress_names,
+        inactive_names: inactive_names,
+        done_names: done_names,
+        hold_tags: hold_tags,
+        special_tags: special_tags,
+        workstreams: Map.get(issue_workstreams, issue["id"], []),
+        window_start_ms: window_start_ms,
+        window_end_ms: window_end_ms
+      )
+    end
+
+    touched_in_window? = fn issue, summary, window_start_ms, window_end_ms ->
+      touched_by_issue_timestamps =
+        Enum.any?([issue["created"], issue["updated"], issue["resolved"]], fn ts ->
+          is_integer(ts) and ts >= window_start_ms and ts <= window_end_ms
+        end)
+
+      touched_by_details =
+        summary.description_changes_in_window != [] or
+          summary.state_changes_in_window != [] or
+          summary.hold_tag_changes_in_window != [] or
+          summary.comments_in_window != []
+
+      touched_by_issue_timestamps or touched_by_details
+    end
+
+    weekly_summaries =
+      issues
+      |> Enum.map(&build_summary.(&1, weekly_start_ms, weekly_end_ms))
+      |> Enum.filter(fn summary ->
+        issue = Enum.find(issues, &((&1["idReadable"] || &1["id"]) == summary.id))
+        issue && touched_in_window?.(issue, summary, weekly_start_ms, weekly_end_ms)
+      end)
+
+    daily_summaries =
+      issues
+      |> Enum.map(&build_summary.(&1, daily_start_ms, daily_end_ms))
+      |> Enum.filter(fn summary ->
+        issue = Enum.find(issues, &((&1["idReadable"] || &1["id"]) == summary.id))
+        issue && touched_in_window?.(issue, summary, daily_start_ms, daily_end_ms)
+      end)
+
+    weekly_payload = %{
+      window: %{start: Date.to_iso8601(week_start), end: Date.to_iso8601(week_end)},
+      metrics: summary_metrics(weekly_summaries, weekly_start_ms, weekly_end_ms),
+      issues: weekly_summaries
+    }
+
+    daily_payload = %{
+      window: %{date: Date.to_iso8601(last_working_day)},
+      metrics: summary_metrics(daily_summaries, daily_start_ms, daily_end_ms),
+      issues: daily_summaries
+    }
+
+    report_payload = %{
+      generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+      daily_report: daily_payload,
+      weekly_report: weekly_payload
+    }
+
+    report_json = Jason.encode!(report_payload, pretty: true)
+
+    {:ok,
+     %{
+       report_payload: report_payload,
+       report_json: report_json,
+       daily_payload: daily_payload,
+       weekly_payload: weekly_payload,
+       daily_json: Jason.encode!(daily_payload, pretty: true),
+       weekly_json: Jason.encode!(weekly_payload, pretty: true),
+       fetch_cache_state: cache_state,
+       summary_rows: [
+         %{
+           window: "Daily",
+           issues: daily_payload.metrics.issues_touched,
+           completed: daily_payload.metrics.completed_in_window
+         },
+         %{
+           window: "Weekly",
+           issues: weekly_payload.metrics.issues_touched,
+           completed: weekly_payload.metrics.completed_in_window
+         }
+       ]
+     }}
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp summary_metrics(summaries, window_start_ms, window_end_ms) do
+    completed_in_window =
+      Enum.count(summaries, fn summary ->
+        is_integer(summary.resolved) and summary.resolved >= window_start_ms and
+          summary.resolved <= window_end_ms
+      end)
+
+    hold_count = Enum.count(summaries, & &1.is_on_hold)
+    changed_description = Enum.count(summaries, & &1.description_updated_in_window)
+
+    %{
+      issues_touched: length(summaries),
+      completed_in_window: completed_in_window,
+      on_hold: hold_count,
+      description_updates: changed_description
+    }
+  end
+
+  defp call_llm(config, report_data) do
+    llm_base_url = config["llm_base_url"] |> to_string() |> String.trim_trailing("/")
+    llm_model = config["llm_model"] |> to_string() |> String.trim()
+    llm_window = (config["llm_window"] || "daily") |> to_string()
+    llm_timeout_ms = parse_int(config["llm_timeout_seconds"], 300) * 1000
+
+    selected_payload_json =
+      case llm_window do
+        "weekly" -> report_data.weekly_json
+        "daily" -> report_data.daily_json
+        _ -> report_data.report_json
+      end
+
+    prompt_template =
+      load_prompt_template(config, discover_prompt_files(config["prompts_path"] || ""))
+
+    prompt_text = build_prompt_text(prompt_template, selected_payload_json)
+
+    case Req.post("#{llm_base_url}/v1/chat/completions",
+           json: %{
+             model: llm_model,
+             messages: [%{role: "user", content: prompt_text}],
+             stream: false
+           },
+           receive_timeout: llm_timeout_ms
+         ) do
+      {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => content}} | _]}}} ->
+        {:ok, content}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error,
+         "LLM request failed with status #{status}: #{inspect(body) |> String.slice(0, 800)}"}
+
+      {:error, reason} ->
+        {:error, "LLM request error: #{inspect(reason)}"}
+    end
+  end
+
+  defp build_prompt_text(prompt_template, payload_json) do
+    if String.contains?(prompt_template, @payload_placeholder) do
+      String.replace(prompt_template, @payload_placeholder, payload_json)
+    else
+      prompt_template <> "\n\nJSON payload:\n" <> payload_json
+    end
+  end
+
+  defp load_prompt_template(config, prompt_files) do
+    selected = (config["prompt_source"] || "manual") |> to_string()
+    manual = (config["manual_prompt"] || "") |> to_string() |> String.trim()
+
+    cond do
+      selected == "manual" and manual != "" ->
+        manual
+
+      selected == "manual" ->
+        "Write a concise delivery report for leadership. Focus on outcomes, risks, blockers, and notable signals.\n\n#{@payload_placeholder}"
+
+      true ->
+        case Enum.find(prompt_files, fn %{id: id} -> id == selected end) do
+          nil ->
+            "Summarize the report payload.\n\n#{@payload_placeholder}"
+
+          %{path: path} ->
+            case File.read(path) do
+              {:ok, content} -> content
+              {:error, _} -> "Summarize the report payload.\n\n#{@payload_placeholder}"
+            end
+        end
+    end
+  end
+
+  defp discover_prompt_files(prompts_path) do
+    path = to_string(prompts_path || "")
+
+    if path == "" or not File.dir?(path) do
+      []
+    else
+      path
+      |> File.ls!()
+      |> Enum.filter(fn file -> String.ends_with?(file, [".prompt", ".txt", ".md"]) end)
+      |> Enum.map(fn file ->
+        %{
+          id: "file:" <> file,
+          label: file,
+          path: Path.join(path, file)
+        }
+      end)
+      |> Enum.sort_by(& &1.label)
+    end
+  end
+
+  defp with_report_defaults(defaults) do
+    today = Date.utc_today()
+    this_week_start = Date.beginning_of_week(today, :monday)
+    last_week_start_default = Date.add(this_week_start, -7)
+    last_week_end_default = Date.add(this_week_start, -1)
+
+    last_working_day_default =
+      case Date.day_of_week(today) do
+        1 -> Date.add(today, -3)
+        7 -> Date.add(today, -2)
+        6 -> Date.add(today, -1)
+        _ -> Date.add(today, -1)
+      end
+
+    defaults
+    |> Map.put_new("report_week_start", Date.to_iso8601(last_week_start_default))
+    |> Map.put_new("report_week_end", Date.to_iso8601(last_week_end_default))
+    |> Map.put_new("report_last_working_day", Date.to_iso8601(last_working_day_default))
+    |> Map.put_new("report_inactive_states", "To Do, Todo")
+    |> Map.put_new("report_done_states", "Done, Won't Do")
+    |> Map.put_new("report_special_tags", "on hold, blocked, to be specified")
+    |> Map.put_new("report_hold_tags", "on hold, blocked")
+    |> Map.put_new(
+      "report_activity_categories",
+      "CustomFieldCategory,TagsCategory,DescriptionCategory"
+    )
+    |> Map.put_new("prompt_source", "manual")
+    |> Map.put_new(
+      "manual_prompt",
+      "Write a concise delivery report for leadership.\n\n#{@payload_placeholder}"
+    )
+    |> Map.put_new("json_preview_limit", "4000")
+    |> Map.put_new("payload_window", "weekly")
+    |> Map.put_new("llm_base_url", System.get_env("LLM_BASE_URL", "http://localhost:11434"))
+    |> Map.put_new("llm_model", System.get_env("LLM_MODEL", "qwen2.5:7b"))
+    |> Map.put_new("llm_window", "daily")
+    |> Map.put_new("llm_timeout_seconds", "300")
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <section class="metrics-content">
+        <div class="mx-auto max-w-7xl space-y-6 pb-10">
+          <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">Section</p>
+                <h2 class="metrics-brand mt-2 text-4xl leading-none text-stone-50">Weekly Report</h2>
+                <p class="mt-3 text-stone-300">Build daily/weekly payloads and generate leadership-ready narrative with optional LLM.</p>
+              </div>
+              <div class="flex gap-2">
+                <.link navigate={~p"/"} class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">Back</.link>
+                <button id="toggle-weekly-config" type="button" phx-click="toggle_config" class="rounded-lg border border-orange-300/30 bg-orange-300/10 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/20">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
+                <button id="build-weekly-report" type="button" phx-click="build_report" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Build (cache)</button>
+                <button id="build-weekly-report-refresh" type="button" phx-click="build_report" phx-value-refresh="true" class="rounded-lg border border-orange-300/30 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/10">Rebuild (API)</button>
+                <button id="clear-weekly-cache" type="button" phx-click="clear_cache" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">Clear cache</button>
+              </div>
+            </div>
+            <%= if @fetch_cache_state do %>
+              <p id="weekly-cache-state" class="mt-3 text-xs uppercase tracking-[0.2em] text-orange-200/70">
+                Last fetch source: {cache_state_label(@fetch_cache_state)}
+              </p>
+            <% end %>
+          </div>
+
+          <%= if @fetch_error do %>
+            <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">{@fetch_error}</div>
+          <% end %>
+
+          <%= if @config_open? do %>
+            <section class="metrics-card rounded-[2rem] p-6">
+              <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Configuration</p>
+              <.form for={@config_form} id="weekly-config-form" phx-change="config_changed" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <.input field={@config_form[:base_url]} type="text" label="Base URL" />
+                <.input field={@config_form[:token]} type="password" label="Token" />
+                <.input field={@config_form[:base_query]} type="text" label="Base query" />
+                <.input field={@config_form[:report_week_start]} type="text" label="Week start (ISO)" />
+                <.input field={@config_form[:report_week_end]} type="text" label="Week end (ISO)" />
+                <.input field={@config_form[:report_last_working_day]} type="text" label="Last working day (ISO)" />
+                <.input field={@config_form[:state_field]} type="text" label="State field" />
+                <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
+                <.input field={@config_form[:in_progress_names]} type="text" label="In progress states (CSV)" />
+                <.input field={@config_form[:report_inactive_states]} type="text" label="Inactive states (CSV)" />
+                <.input field={@config_form[:report_done_states]} type="text" label="Done states (CSV)" />
+                <.input field={@config_form[:report_special_tags]} type="text" label="Special tags (CSV)" />
+                <.input field={@config_form[:report_hold_tags]} type="text" label="Hold tags (CSV)" />
+                <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
+                <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
+                <.input field={@config_form[:report_activity_categories]} type="text" label="Activity categories" />
+                <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
+                <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
+                <.input field={@config_form[:prompt_source]} type="select" label="Prompt source" options={prompt_source_options(@prompt_files)} />
+                <.input field={@config_form[:manual_prompt]} type="textarea" label="Manual prompt" />
+                <.input field={@config_form[:llm_base_url]} type="text" label="LLM base URL" />
+                <.input field={@config_form[:llm_model]} type="text" label="LLM model" />
+                <.input field={@config_form[:llm_window]} type="select" label="LLM payload window" options={[{"Daily", "daily"}, {"Weekly", "weekly"}, {"Full", "full"}]} />
+                <.input field={@config_form[:llm_timeout_seconds]} type="number" label="LLM timeout seconds" />
+              </.form>
+            </section>
+          <% end %>
+
+          <%= if @loading? do %>
+            <div class="metrics-card rounded-[2rem] p-8 text-stone-300">Building report payload from issues and activities...</div>
+          <% end %>
+
+          <%= if @report_data do %>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" phx-click="select_tab" phx-value-tab="summary" class={tab_class(@active_tab == "summary")}>Summary</button>
+              <button type="button" phx-click="select_tab" phx-value-tab="json" class={tab_class(@active_tab == "json")}>JSON Preview</button>
+              <button type="button" phx-click="select_tab" phx-value-tab="payload" class={tab_class(@active_tab == "payload")}>Payload Tree</button>
+              <button type="button" phx-click="select_tab" phx-value-tab="copy" class={tab_class(@active_tab == "copy")}>Copy/Download</button>
+              <button type="button" phx-click="select_tab" phx-value-tab="llm" class={tab_class(@active_tab == "llm")}>LLM</button>
+            </div>
+
+            <%= if @active_tab == "summary" do %>
+              <section class="metrics-card rounded-[2rem] p-6">
+                <h3 class="text-xl font-semibold text-stone-50">Report Summary</h3>
+                <div class="mt-4 overflow-x-auto">
+                  <table class="min-w-full text-sm text-stone-200">
+                    <thead>
+                      <tr class="border-b border-white/10 text-stone-400">
+                        <th class="px-3 py-2 text-left">Window</th>
+                        <th class="px-3 py-2 text-left">Issues touched</th>
+                        <th class="px-3 py-2 text-left">Completed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <%= for row <- @report_data.summary_rows do %>
+                        <tr class="border-b border-white/5">
+                          <td class="px-3 py-2">{row.window}</td>
+                          <td class="px-3 py-2">{row.issues}</td>
+                          <td class="px-3 py-2">{row.completed}</td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            <% end %>
+
+            <%= if @active_tab == "json" do %>
+              <section class="metrics-card rounded-[2rem] p-6">
+                <h3 class="text-xl font-semibold text-stone-50">JSON Preview</h3>
+                <div class="metrics-code mt-4 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                  <pre>{truncate(@report_data.report_json, parse_int(@config["json_preview_limit"], 4000))}</pre>
+                </div>
+              </section>
+            <% end %>
+
+            <%= if @active_tab == "payload" do %>
+              <section class="metrics-card rounded-[2rem] p-6 space-y-6">
+                <div>
+                  <h3 class="text-xl font-semibold text-stone-50">Weekly Payload</h3>
+                  <div class="metrics-code mt-3 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                    <pre>{truncate(@report_data.weekly_json, 3000)}</pre>
+                  </div>
+                </div>
+                <div>
+                  <h3 class="text-xl font-semibold text-stone-50">Daily Payload</h3>
+                  <div class="metrics-code mt-3 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                    <pre>{truncate(@report_data.daily_json, 3000)}</pre>
+                  </div>
+                </div>
+              </section>
+            <% end %>
+
+            <%= if @active_tab == "copy" do %>
+              <section class="metrics-card rounded-[2rem] p-6 space-y-4">
+                <h3 class="text-xl font-semibold text-stone-50">Copy / Download</h3>
+                <a id="download-weekly-json" href={data_uri(@report_data.weekly_json)} download="weekly-report.json" class="inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Download weekly JSON</a>
+                <a id="download-daily-json" href={data_uri(@report_data.daily_json)} download="daily-report.json" class="inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Download daily JSON</a>
+                <a id="download-full-json" href={data_uri(@report_data.report_json)} download="full-report.json" class="inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Download full JSON</a>
+              </section>
+            <% end %>
+
+            <%= if @active_tab == "llm" do %>
+              <section class="metrics-card rounded-[2rem] p-6 space-y-4">
+                <h3 class="text-xl font-semibold text-stone-50">LLM Summary</h3>
+                <div class="flex gap-2">
+                  <button id="generate-prompt" type="button" phx-click="generate_prompt" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Generate prompt</button>
+                  <button id="send-to-llm" type="button" phx-click="send_to_llm" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Send to LLM</button>
+                </div>
+
+                <%= if @llm_loading? do %>
+                  <p class="text-stone-300">Calling LLM endpoint...</p>
+                <% end %>
+
+                <%= if @llm_error do %>
+                  <p class="text-red-300">{@llm_error}</p>
+                <% end %>
+
+                <%= if @prompt_preview do %>
+                  <div class="metrics-code overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                    <pre>{truncate(@prompt_preview, 4000)}</pre>
+                  </div>
+                <% end %>
+
+                <%= if @llm_response do %>
+                  <div class="rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-4 text-sm text-emerald-100">
+                    <pre>{@llm_response}</pre>
+                  </div>
+                <% end %>
+              </section>
+            <% end %>
+          <% end %>
+        </div>
+      </section>
+    </Layouts.app>
+    """
+  end
+
+  defp prompt_source_options(prompt_files) do
+    file_options = Enum.map(prompt_files, fn file -> {file.label, file.id} end)
+    file_options ++ [{"Manual prompt", "manual"}]
+  end
+
+  defp tab_class(active?) do
+    base = "rounded-lg border px-3 py-2 text-sm"
+
+    if active? do
+      base <> " border-orange-300/60 bg-orange-300/12 text-orange-100"
+    else
+      base <> " border-white/10 text-stone-200 hover:border-orange-300/40"
+    end
+  end
+
+  defp cache_state_label(:hit), do: "cache hit"
+  defp cache_state_label(:miss), do: "cache miss"
+  defp cache_state_label(:refresh), do: "refresh"
+  defp cache_state_label(_), do: "unknown"
+
+  defp truncate(text, max_chars) when is_binary(text) and is_integer(max_chars) do
+    if String.length(text) <= max_chars do
+      text
+    else
+      String.slice(text, 0, max_chars) <> "\n\n... (truncated)"
+    end
+  end
+
+  defp data_uri(content) do
+    "data:text/plain;charset=utf-8," <> URI.encode(content)
+  end
+
+  defp to_start_ms(date) do
+    date
+    |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+    |> DateTime.to_unix(:millisecond)
+  end
+
+  defp to_end_ms(date) do
+    date
+    |> Date.add(1)
+    |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+    |> DateTime.to_unix(:millisecond)
+    |> Kernel.-(1)
+  end
+
+  defp filter_by_project_prefix(issues, ""), do: issues
+
+  defp filter_by_project_prefix(issues, prefix) do
+    Enum.filter(issues, fn issue -> String.starts_with?(issue["idReadable"] || "", prefix) end)
+  end
+
+  defp csv_list(nil), do: []
+
+  defp csv_list(value) when is_binary(value) do
+    value
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp parse_bool(value) when value in [true, "true", "TRUE", "1", 1], do: true
+  defp parse_bool(_), do: false
+
+  defp parse_int(nil, default), do: default
+  defp parse_int(value, _default) when is_integer(value), do: value
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+
+  defp parse_int(_, default), do: default
+
+  defp validate_config(config) do
+    cond do
+      blank?(config["base_url"]) -> {:error, "Base URL is required"}
+      blank?(config["token"]) -> {:error, "Token is required"}
+      blank?(config["base_query"]) -> {:error, "Base query is required"}
+      blank?(config["report_week_start"]) -> {:error, "Week start is required"}
+      blank?(config["report_week_end"]) -> {:error, "Week end is required"}
+      blank?(config["report_last_working_day"]) -> {:error, "Last working day is required"}
+      true -> :ok
+    end
+  end
+
+  defp blank?(value), do: is_nil(value) or String.trim(to_string(value)) == ""
+end
