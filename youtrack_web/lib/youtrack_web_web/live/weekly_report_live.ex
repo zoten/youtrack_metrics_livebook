@@ -10,6 +10,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
   alias Youtrack.Workstreams
   alias Youtrack.WorkstreamsLoader
   alias YoutrackWeb.Configuration
+  alias YoutrackWeb.ConfigVisibilityPreference
 
   @payload_placeholder "{{REPORT_PAYLOAD_JSON}}"
 
@@ -42,12 +43,15 @@ defmodule YoutrackWeb.WeeklyReportLive do
   @impl true
   def mount(_params, _session, socket) do
     defaults = Configuration.defaults() |> with_report_defaults()
+    prompt_files = discover_prompt_files(defaults["prompts_path"])
+    defaults = ensure_prompt_source(defaults, prompt_files)
+    config_open? = ConfigVisibilityPreference.from_socket(socket)
 
     socket =
       socket
       |> assign(:current_scope, nil)
       |> assign(:page_title, "Weekly Report")
-      |> assign(:config_open?, true)
+      |> assign(:config_open?, config_open?)
       |> assign(:loading?, false)
       |> assign(:llm_loading?, false)
       |> assign(:fetch_error, nil)
@@ -58,28 +62,49 @@ defmodule YoutrackWeb.WeeklyReportLive do
       |> assign(:config, defaults)
       |> assign(:config_form, to_form(defaults, as: :config))
       |> assign(:report_data, nil)
-      |> assign(:prompt_files, discover_prompt_files(defaults["prompts_path"]))
+      |> assign(:prompt_files, prompt_files)
+      |> assign(:llm_models, [])
+      |> assign(:llm_models_loading?, false)
+      |> assign(:llm_models_error, nil)
       |> assign(:prompt_preview, nil)
 
-    if connected?(socket), do: send(self(), :maybe_auto_fetch)
+    if connected?(socket) do
+      send(self(), :maybe_auto_fetch)
+      send(self(), :load_llm_models)
+    end
 
     {:ok, socket}
   end
 
   @impl true
   def handle_event("toggle_config", _params, socket) do
-    {:noreply, update(socket, :config_open?, &(!&1))}
+    config_open? = !socket.assigns.config_open?
+
+    {:noreply,
+     socket
+     |> assign(:config_open?, config_open?)
+     |> push_event("config_visibility_changed", %{open: config_open?})}
   end
 
   @impl true
   def handle_event("config_changed", %{"config" => params}, socket) do
     prompt_files = discover_prompt_files(params["prompts_path"] || "")
+    params = ensure_prompt_source(params, prompt_files)
 
     {:noreply,
      socket
      |> assign(:config, params)
      |> assign(:config_form, to_form(params, as: :config))
      |> assign(:prompt_files, prompt_files)}
+  end
+
+  @impl true
+  def handle_event("refresh_llm_models", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:llm_models_loading?, true)
+     |> assign(:llm_models_error, nil)
+     |> start_models_task(socket.assigns.config)}
   end
 
   @impl true
@@ -176,6 +201,37 @@ defmodule YoutrackWeb.WeeklyReportLive do
   end
 
   @impl true
+  def handle_info({ref, {:ok, {:models, models}}}, socket) do
+    Process.demonitor(ref, [:flush])
+
+    config =
+      case socket.assigns.config["llm_model"] do
+        value when is_binary(value) and value != "" -> socket.assigns.config
+        _ -> maybe_set_default_model(socket.assigns.config, models)
+      end
+
+    {:noreply,
+     socket
+     |> assign(:llm_models_loading?, false)
+     |> assign(:llm_models_error, nil)
+     |> assign(:llm_models, models)
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))}
+  end
+
+  @impl true
+  def handle_info({ref, {:ok, {:models_error, message}}}, socket) do
+    Process.demonitor(ref, [:flush])
+
+    {:noreply,
+     socket
+     |> assign(:llm_models_loading?, false)
+     |> assign(:llm_models_error, to_string(message))}
+  end
+
+  OLD
+
+  @impl true
   def handle_info({ref, {:error, reason}}, socket) do
     Process.demonitor(ref, [:flush])
 
@@ -216,6 +272,15 @@ defmodule YoutrackWeb.WeeklyReportLive do
     end
   end
 
+  @impl true
+  def handle_info(:load_llm_models, socket) do
+    {:noreply,
+     socket
+     |> assign(:llm_models_loading?, true)
+     |> assign(:llm_models_error, nil)
+     |> start_models_task(socket.assigns.config)}
+  end
+
   defp start_report_task(socket, config, refresh?) do
     task =
       Task.Supervisor.async_nolink(YoutrackWeb.TaskSupervisor, fn ->
@@ -238,6 +303,18 @@ defmodule YoutrackWeb.WeeklyReportLive do
       end)
 
     assign(socket, :llm_task_ref, task.ref)
+  end
+
+  defp start_models_task(socket, config) do
+    task =
+      Task.Supervisor.async_nolink(YoutrackWeb.TaskSupervisor, fn ->
+        case fetch_llm_models(config) do
+          {:ok, models} -> {:ok, {:models, models}}
+          {:error, reason} -> {:ok, {:models_error, reason}}
+        end
+      end)
+
+    assign(socket, :llm_models_task_ref, task.ref)
   end
 
   defp build_report(config, refresh?) do
@@ -462,6 +539,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     prompt_text = build_prompt_text(prompt_template, selected_payload_json)
 
     case Req.post("#{llm_base_url}/v1/chat/completions",
+           headers: llm_headers(config),
            json: %{
              model: llm_model,
              messages: [%{role: "user", content: prompt_text}],
@@ -478,6 +556,49 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
       {:error, reason} ->
         {:error, "LLM request error: #{inspect(reason)}"}
+    end
+  end
+
+  defp fetch_llm_models(config) do
+    llm_base_url = config["llm_base_url"] |> to_string() |> String.trim_trailing("/")
+
+    if blank?(llm_base_url) do
+      {:error, "LLM base URL is required to load models"}
+    else
+      headers = llm_headers(config)
+
+      case Req.get("#{llm_base_url}/v1/models", headers: headers, receive_timeout: 15_000) do
+        {:ok, %{status: 200, body: %{"data" => data}}} when is_list(data) ->
+          models =
+            data
+            |> Enum.map(&Map.get(&1, "id"))
+            |> Enum.reject(&blank?/1)
+            |> Enum.uniq()
+            |> Enum.sort()
+
+          if models == [] do
+            {:error, "No models returned by provider"}
+          else
+            {:ok, models}
+          end
+
+        {:ok, %{status: status, body: body}} ->
+          {:error,
+           "Model list request failed with status #{status}: #{inspect(body) |> String.slice(0, 240)}"}
+
+        {:error, reason} ->
+          {:error, "Model list request error: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp llm_headers(config) do
+    api_key = config["llm_api_key"] |> to_string() |> String.trim()
+
+    if api_key == "" do
+      []
+    else
+      [{"authorization", "Bearer #{api_key}"}]
     end
   end
 
@@ -522,7 +643,9 @@ defmodule YoutrackWeb.WeeklyReportLive do
     else
       path
       |> File.ls!()
-      |> Enum.filter(fn file -> String.ends_with?(file, [".prompt", ".txt", ".md"]) end)
+      |> Enum.filter(fn file ->
+        String.ends_with?(file, [".txt", ".md", ".prompt"]) or String.contains?(file, ".prompt.")
+      end)
       |> Enum.map(fn file ->
         %{
           id: "file:" <> file,
@@ -560,7 +683,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
       "report_activity_categories",
       "CustomFieldCategory,TagsCategory,DescriptionCategory"
     )
-    |> Map.put_new("prompt_source", "manual")
+    |> Map.put_new("prompt_source", "")
     |> Map.put_new(
       "manual_prompt",
       "Write a concise delivery report for leadership.\n\n#{@payload_placeholder}"
@@ -568,6 +691,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     |> Map.put_new("json_preview_limit", "4000")
     |> Map.put_new("payload_window", "weekly")
     |> Map.put_new("llm_base_url", System.get_env("LLM_BASE_URL", "http://localhost:11434"))
+    |> Map.put_new("llm_api_key", System.get_env("LLM_API_KEY", ""))
     |> Map.put_new("llm_model", System.get_env("LLM_MODEL", "qwen2.5:7b"))
     |> Map.put_new("llm_window", "daily")
     |> Map.put_new("llm_timeout_seconds", "300")
@@ -614,31 +738,69 @@ defmodule YoutrackWeb.WeeklyReportLive do
           <%= if @config_open? do %>
             <section class="metrics-card rounded-[2rem] p-6">
               <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Configuration</p>
-              <.form for={@config_form} id="weekly-config-form" phx-change="config_changed" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <.input field={@config_form[:base_url]} type="text" label="Base URL" />
-                <.input field={@config_form[:token]} type="password" label="Token" />
-                <.input field={@config_form[:base_query]} type="text" label="Base query" />
-                <.input field={@config_form[:report_week_start]} type="text" label="Week start (ISO)" />
-                <.input field={@config_form[:report_week_end]} type="text" label="Week end (ISO)" />
-                <.input field={@config_form[:report_last_working_day]} type="text" label="Last working day (ISO)" />
-                <.input field={@config_form[:state_field]} type="text" label="State field" />
-                <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
-                <.input field={@config_form[:in_progress_names]} type="text" label="In progress states (CSV)" />
-                <.input field={@config_form[:report_inactive_states]} type="text" label="Inactive states (CSV)" />
-                <.input field={@config_form[:report_done_states]} type="text" label="Done states (CSV)" />
-                <.input field={@config_form[:report_special_tags]} type="text" label="Special tags (CSV)" />
-                <.input field={@config_form[:report_hold_tags]} type="text" label="Hold tags (CSV)" />
-                <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
-                <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
-                <.input field={@config_form[:report_activity_categories]} type="text" label="Activity categories" />
-                <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
-                <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
-                <.input field={@config_form[:prompt_source]} type="select" label="Prompt source" options={prompt_source_options(@prompt_files)} />
-                <.input field={@config_form[:manual_prompt]} type="textarea" label="Manual prompt" />
-                <.input field={@config_form[:llm_base_url]} type="text" label="LLM base URL" />
-                <.input field={@config_form[:llm_model]} type="text" label="LLM model" />
-                <.input field={@config_form[:llm_window]} type="select" label="LLM payload window" options={[{"Daily", "daily"}, {"Weekly", "weekly"}, {"Full", "full"}]} />
-                <.input field={@config_form[:llm_timeout_seconds]} type="number" label="LLM timeout seconds" />
+              <.form for={@config_form} id="weekly-config-form" phx-change="config_changed" class="mt-4">
+                <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                  <div class="rounded-3xl border border-white/10 bg-black/10 p-4">
+                    <p class="text-xs uppercase tracking-[0.22em] text-stone-400">Project and Querying</p>
+                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <.input field={@config_form[:base_url]} type="text" label="Base URL" />
+                      <.input field={@config_form[:token]} type="password" label="Token" />
+                      <.input field={@config_form[:base_query]} type="text" label="Base query" />
+                      <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
+                      <.input field={@config_form[:report_week_start]} type="text" label="Week start (ISO)" />
+                      <.input field={@config_form[:report_week_end]} type="text" label="Week end (ISO)" />
+                      <.input field={@config_form[:report_last_working_day]} type="text" label="Last working day (ISO)" />
+                      <.input field={@config_form[:state_field]} type="text" label="State field" />
+                      <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
+                      <.input field={@config_form[:in_progress_names]} type="text" label="In progress states (CSV)" />
+                      <.input field={@config_form[:report_inactive_states]} type="text" label="Inactive states (CSV)" />
+                      <.input field={@config_form[:report_done_states]} type="text" label="Done states (CSV)" />
+                      <.input field={@config_form[:report_special_tags]} type="text" label="Special tags (CSV)" />
+                      <.input field={@config_form[:report_hold_tags]} type="text" label="Hold tags (CSV)" />
+                      <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
+                      <.input field={@config_form[:report_activity_categories]} type="text" label="Activity categories" />
+                      <div class="md:col-span-2">
+                        <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="rounded-3xl border border-orange-300/20 bg-orange-300/5 p-4">
+                    <p class="text-xs uppercase tracking-[0.22em] text-orange-100">Send to LLM</p>
+                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div class="md:col-span-2">
+                        <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
+                        <p class="mt-1 text-xs text-stone-400">Use .prompts/ (or prompts/) with .md and .txt files for reusable prompt templates.</p>
+                      </div>
+                      <.input field={@config_form[:prompt_source]} type="select" label="Prompt source" options={prompt_source_options(@prompt_files)} />
+
+                      <div class="md:col-span-2">
+                        <div class="flex items-center justify-between gap-3 rounded-2xl border border-white/10 px-3 py-2">
+                          <p class="text-sm text-stone-200">Available models</p>
+                          <button id="refresh-llm-models" type="button" phx-click="refresh_llm_models" class="rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-100 hover:border-orange-300/40">Refresh list</button>
+                        </div>
+                        <%= if @llm_models_loading? do %>
+                          <p class="mt-2 text-xs text-stone-400">Loading models from provider...</p>
+                        <% end %>
+                        <%= if @llm_models_error do %>
+                          <p class="mt-2 text-xs text-red-300">{@llm_models_error}</p>
+                        <% end %>
+                      </div>
+
+                      <.input field={@config_form[:llm_base_url]} type="text" label="LLM base URL" />
+                      <.input field={@config_form[:llm_api_key]} type="password" label="LLM API key" />
+                      <.input field={@config_form[:llm_model]} type="select" label="LLM model" options={llm_model_options(@llm_models, @config["llm_model"])} />
+                      <.input field={@config_form[:llm_window]} type="select" label="LLM payload window" options={[{"Daily", "daily"}, {"Weekly", "weekly"}, {"Full", "full"}]} />
+                      <.input field={@config_form[:llm_timeout_seconds]} type="number" label="LLM timeout seconds" />
+
+                      <%= if @config["prompt_source"] == "manual" do %>
+                        <div class="md:col-span-2">
+                          <.input field={@config_form[:manual_prompt]} type="textarea" rows="16" label="Manual prompt" />
+                        </div>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
               </.form>
             </section>
           <% end %>
@@ -758,6 +920,41 @@ defmodule YoutrackWeb.WeeklyReportLive do
     file_options = Enum.map(prompt_files, fn file -> {file.label, file.id} end)
     file_options ++ [{"Manual prompt", "manual"}]
   end
+
+  defp llm_model_options(models, selected_model) do
+    selected_option =
+      case selected_model do
+        value when is_binary(value) and value != "" -> [{value, value}]
+        _ -> []
+      end
+
+    discovered = Enum.map(models, fn model -> {model, model} end)
+
+    (selected_option ++ discovered)
+    |> Enum.uniq()
+  end
+
+  defp ensure_prompt_source(config, prompt_files) do
+    selected = config["prompt_source"] |> to_string()
+    prompt_ids = Enum.map(prompt_files, & &1.id)
+
+    cond do
+      selected == "manual" -> config
+      selected in prompt_ids -> config
+      prompt_files == [] -> Map.put(config, "prompt_source", "manual")
+      true -> Map.put(config, "prompt_source", default_prompt_source(prompt_files))
+    end
+  end
+
+  defp default_prompt_source(prompt_files) do
+    case Enum.find(prompt_files, &String.starts_with?(&1.label, ".prompt")) do
+      nil -> List.first(prompt_files).id
+      prompt_file -> prompt_file.id
+    end
+  end
+
+  defp maybe_set_default_model(config, []), do: config
+  defp maybe_set_default_model(config, [first | _]), do: Map.put(config, "llm_model", first)
 
   defp tab_class(active?) do
     base = "rounded-lg border px-3 py-2 text-sm"

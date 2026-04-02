@@ -31,6 +31,13 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
     assert has_element?(view, "#flow-config-form")
   end
 
+  test "reads persisted config visibility from connect params", %{conn: conn} do
+    conn = put_connect_params(conn, %{"config_open" => "false"})
+    {:ok, view, _html} = live(conn, ~p"/flow-metrics")
+
+    refute has_element?(view, "#flow-config-form")
+  end
+
   test "shows validation error when base query is blank", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/flow-metrics")
 

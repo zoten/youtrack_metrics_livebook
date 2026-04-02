@@ -9,16 +9,18 @@ defmodule YoutrackWeb.PairingLive do
   alias Youtrack.PairingAnalysis
   alias Youtrack.WorkstreamsLoader
   alias YoutrackWeb.Configuration
+  alias YoutrackWeb.ConfigVisibilityPreference
 
   @impl true
   def mount(_params, _session, socket) do
     defaults = Configuration.defaults()
+    config_open? = ConfigVisibilityPreference.from_socket(socket)
 
     socket =
       socket
       |> assign(:current_scope, nil)
       |> assign(:page_title, "Pairing")
-      |> assign(:config_open?, true)
+      |> assign(:config_open?, config_open?)
       |> assign(:loading?, false)
       |> assign(:fetch_error, nil)
       |> assign(:fetch_cache_state, nil)
@@ -34,7 +36,12 @@ defmodule YoutrackWeb.PairingLive do
 
   @impl true
   def handle_event("toggle_config", _params, socket) do
-    {:noreply, update(socket, :config_open?, &(!&1))}
+    config_open? = !socket.assigns.config_open?
+
+    {:noreply,
+     socket
+     |> assign(:config_open?, config_open?)
+     |> push_event("config_visibility_changed", %{open: config_open?})}
   end
 
   @impl true

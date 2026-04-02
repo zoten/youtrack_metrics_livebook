@@ -2,15 +2,17 @@ defmodule YoutrackWeb.DashboardLive do
   use YoutrackWeb, :live_view
 
   alias YoutrackWeb.Configuration
+  alias YoutrackWeb.ConfigVisibilityPreference
 
   @impl true
   def mount(_params, _session, socket) do
     defaults = Configuration.defaults()
+    config_open? = ConfigVisibilityPreference.from_socket(socket)
 
     {:ok,
      socket
      |> assign(:current_scope, nil)
-     |> assign(:config_open?, true)
+     |> assign(:config_open?, config_open?)
      |> assign(:page_title, "YouTrack Metrics")
      |> assign(:config, defaults)
      |> assign(:config_form, to_form(defaults, as: :config))
@@ -19,7 +21,12 @@ defmodule YoutrackWeb.DashboardLive do
 
   @impl true
   def handle_event("toggle_config", _params, socket) do
-    {:noreply, update(socket, :config_open?, &(!&1))}
+    config_open? = !socket.assigns.config_open?
+
+    {:noreply,
+     socket
+     |> assign(:config_open?, config_open?)
+     |> push_event("config_visibility_changed", %{open: config_open?})}
   end
 
   @impl true

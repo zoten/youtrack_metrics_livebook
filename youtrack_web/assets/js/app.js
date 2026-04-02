@@ -28,10 +28,37 @@ import topbar from "../vendor/topbar"
 // Import custom hooks
 import VegaLite from "./hooks"
 
+const CONFIG_OPEN_STORAGE_KEY = "youtrack.config_open"
+
+const readConfigOpenPreference = () => {
+  try {
+    const value = window.localStorage.getItem(CONFIG_OPEN_STORAGE_KEY)
+
+    if (value === "true" || value === "false") {
+      return value
+    }
+
+    return null
+  } catch (_error) {
+    return null
+  }
+}
+
+const writeConfigOpenPreference = (isOpen) => {
+  try {
+    window.localStorage.setItem(CONFIG_OPEN_STORAGE_KEY, `${isOpen}`)
+  } catch (_error) {
+    // Ignore storage errors (for example privacy mode restrictions).
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
-  params: { _csrf_token: csrfToken },
+  params: () => ({
+    _csrf_token: csrfToken,
+    config_open: readConfigOpenPreference(),
+  }),
   hooks: { VegaLite, ...colocatedHooks },
 })
 
@@ -39,6 +66,13 @@ const liveSocket = new LiveSocket("/live", Socket, {
 topbar.config({ barColors: { 0: "#29d" }, shadowColor: "rgba(0, 0, 0, .3)" })
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
+window.addEventListener("phx:config_visibility_changed", event => {
+  const isOpen = event?.detail?.open
+
+  if (typeof isOpen === "boolean") {
+    writeConfigOpenPreference(isOpen)
+  }
+})
 
 document.documentElement.dataset.theme = "metrics"
 
