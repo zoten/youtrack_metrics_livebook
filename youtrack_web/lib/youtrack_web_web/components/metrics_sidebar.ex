@@ -19,10 +19,10 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
     <aside class="metrics-sidebar px-5 py-6 sm:px-6">
       <div class="space-y-6">
         <div class="space-y-3">
-          <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">Local cockpit</p>
+          <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Local cockpit</p>
           <div class="space-y-2">
-            <h1 class="metrics-brand text-4xl leading-none text-stone-50">YouTrack Metrics</h1>
-            <p class="max-w-xs text-sm leading-6 text-stone-300">
+            <h1 class="metrics-brand metrics-title text-4xl leading-none">YouTrack Metrics</h1>
+            <p class="metrics-copy max-w-xs text-sm leading-6">
               Keep context while moving between views. Every section uses the same source data
               and shared defaults.
             </p>
@@ -36,20 +36,20 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
               navigate={section_path(section.id)}
               aria-current={if(@active_section == section.id, do: "page", else: nil)}
               class={[
-                "metrics-link block rounded-3xl border px-4 py-3 text-stone-300",
-                @active_section == section.id && "border-orange-200/45 bg-orange-200/12 text-orange-100",
+                "metrics-link metrics-nav-link block rounded-3xl border px-4 py-3",
+                @active_section == section.id && "metrics-nav-link-active",
                 @active_section != section.id &&
-                  "border-white/8 bg-white/3 hover:border-orange-200/30 hover:bg-white/6"
+                  "metrics-nav-link-idle"
               ]}
             >
               <div class="flex items-start justify-between gap-4">
                 <div>
-                  <p class="text-sm font-semibold">{section.label}</p>
-                  <p class="mt-1 text-xs uppercase tracking-[0.2em] text-stone-400">
+                  <p class="metrics-title text-sm font-semibold">{section.label}</p>
+                  <p class="metrics-copy mt-1 text-xs uppercase tracking-[0.2em]">
                     {section.visuals}
                   </p>
                 </div>
-                <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-200">
+                <span class="metrics-pill metrics-pill-success px-2 py-1 text-[11px]">
                   {section.stage}
                 </span>
               </div>
@@ -58,10 +58,10 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
         </nav>
 
         <div class="metrics-card rounded-3xl p-4">
-          <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Data freshness</p>
+          <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Data freshness</p>
           <p
             id="sidebar-freshness"
-            class="mt-2 text-xs leading-5 text-stone-200"
+            class="metrics-title mt-2 text-xs leading-5"
             title={@freshness_info.full}
           >
             {@freshness_info.short}
@@ -69,15 +69,15 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
         </div>
 
         <div class="metrics-card rounded-3xl p-4">
-          <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Shared paths</p>
-          <dl class="mt-3 space-y-3 text-sm text-stone-200">
+          <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Shared paths</p>
+          <dl class="metrics-title mt-3 space-y-3 text-sm">
             <div>
-              <dt class="text-stone-400">Workstreams</dt>
-              <dd class="metrics-code mt-1 text-xs text-orange-100">{@config["workstreams_path"]}</dd>
+              <dt class="metrics-copy">Workstreams</dt>
+              <dd class="metrics-code mt-1 text-xs text-[color:var(--metrics-accent)]">{@config["workstreams_path"]}</dd>
             </div>
             <div>
-              <dt class="text-stone-400">Prompts</dt>
-              <dd class="metrics-code mt-1 text-xs text-orange-100">{@config["prompts_path"]}</dd>
+              <dt class="metrics-copy">Prompts</dt>
+              <dd class="metrics-code mt-1 text-xs text-[color:var(--metrics-accent)]">{@config["prompts_path"]}</dd>
             </div>
           </dl>
         </div>

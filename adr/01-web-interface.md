@@ -195,3 +195,5 @@ youtrack_metrics_livebook/
 2. **Cross-section config persistence** — Shared config (base_url, token, query) should persist across section switches via root `DashboardLive` assigns. Section-specific inputs (e.g., gantt `stream_rules`) stay local to that LiveComponent.
 
 3. **API rate limiting** — Single shared Req client per session is sufficient for localhost use. Defer rate limiting unless it becomes an issue.
+
+4. **Theme system exception** — The Phoenix UI now allows DaisyUI specifically as a theming mechanism for the light/dark/system selector and theme tokens. This is intentionally scoped: the app still favors bespoke Tailwind/CSS components for page structure and visual identity, while DaisyUI provides the shared theme variables and selector behavior.

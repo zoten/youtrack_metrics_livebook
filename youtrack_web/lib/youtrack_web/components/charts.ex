@@ -16,7 +16,6 @@ defmodule YoutrackWeb.Components.Charts do
   - `id` - Required. Unique identifier for the chart element.
   - `spec` - Required. VegaLite specification as a map or atom referencing a function.
   - `class` - Optional. CSS classes to apply to the chart container.
-  - `data_theme` - Optional. Vega-Lite theme name (default: "dark").
 
   ## Example
 
@@ -29,8 +28,6 @@ defmodule YoutrackWeb.Components.Charts do
   attr(:id, :string, required: true)
   attr(:spec, :map, required: true)
   attr(:class, :string, default: "h-96 w-full")
-  attr(:data_theme, :string, default: "dark")
-
   def chart(assigns) do
     assigns = assign(assigns, :spec_json, Jason.encode!(assigns.spec))
 
@@ -39,10 +36,9 @@ defmodule YoutrackWeb.Components.Charts do
       id={@id}
         phx-hook="VegaLite"
         data-spec={@spec_json}
-      data-theme={@data_theme}
       class={["metrics-chart", @class]}
     >
-      <div class="flex items-center justify-center h-full text-stone-400">
+      <div class="metrics-chart-loading flex h-full items-center justify-center">
         <span>Loading chart...</span>
       </div>
     </div>
@@ -80,11 +76,11 @@ defmodule YoutrackWeb.Components.Charts do
 
   def chart_card(assigns) do
     ~H"""
-    <div class={["metrics-card", @wrapper_class]}>
+    <div class={["metrics-card rounded-4xl p-4", @wrapper_class]}>
       <div class="mb-4">
-        <h3 class="text-lg font-semibold text-stone-100">{@title}</h3>
+        <h3 class="metrics-title text-lg font-semibold">{@title}</h3>
           <%= if @description do %>
-            <p class="text-sm text-stone-400 mt-1">{@description}</p>
+            <p class="metrics-copy mt-1 text-sm">{@description}</p>
           <% end %>
       </div>
       <.chart id={@id} spec={@spec} class={"w-full #{@class}"} />
@@ -98,14 +94,14 @@ defmodule YoutrackWeb.Components.Charts do
   def chart_toc(assigns) do
     ~H"""
     <details class="metrics-card rounded-[2rem] p-4 lg:sticky lg:top-6" open>
-      <summary class="cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.22em] text-orange-100">
+      <summary class="metrics-eyebrow cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.22em]">
         {@title}
       </summary>
       <nav aria-label="Chart table of contents" class="mt-4 space-y-2">
         <%= for item <- @items do %>
           <a
             href={"##{item.id}"}
-            class="block rounded-xl border border-white/8 bg-white/3 px-3 py-2 text-sm text-stone-200 hover:border-orange-300/30 hover:bg-white/6 hover:text-orange-100"
+            class="metrics-nav-link metrics-nav-link-idle block rounded-xl border px-3 py-2 text-sm hover:text-[color:var(--metrics-accent)]"
           >
             {item.title}
           </a>

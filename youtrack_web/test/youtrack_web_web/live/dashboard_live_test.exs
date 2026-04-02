@@ -6,6 +6,8 @@ defmodule YoutrackWeb.DashboardLiveTest do
   test "renders the shared dashboard shell", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
+    assert has_element?(view, "#theme-toggle")
+    assert has_element?(view, "#theme-system")
     assert has_element?(view, "#shared-config-form")
     assert has_element?(view, "#nav-flow_metrics")
     assert has_element?(view, "#dashboard-home-title", "Choose a live workflow")

@@ -5,6 +5,8 @@ defmodule YoutrackWeb.Layouts do
   """
   use YoutrackWeb, :html
 
+  alias Phoenix.LiveView.JS
+
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
@@ -41,6 +43,97 @@ defmodule YoutrackWeb.Layouts do
         {render_slot(@inner_block)}
       </main>
       <.flash_group flash={@flash} />
+    </div>
+    """
+  end
+
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
+
+  attr(:current_scope, :map,
+    default: nil,
+    doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
+  )
+
+  attr(:config, :map, required: true)
+  attr(:active_section, :string, default: nil)
+  attr(:freshness, :any, default: nil)
+  attr(:topbar_label, :string, default: "Interface")
+  attr(:topbar_hint, :string, default: "Light, dark, or system theme applies across every route.")
+
+  slot(:inner_block, required: true)
+
+  def dashboard(assigns) do
+    ~H"""
+    <.app flash={@flash} current_scope={@current_scope}>
+      <div class="metrics-shell">
+        <.metrics_sidebar
+          config={@config}
+          active_section={@active_section}
+          freshness={@freshness}
+        />
+
+        <section class="metrics-content">
+          <div class="metrics-topbar">
+            <div>
+              <p class="metrics-topbar-label">{@topbar_label}</p>
+              <p class="text-sm text-(--metrics-muted)">{@topbar_hint}</p>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <span class="metrics-topbar-label">Theme</span>
+              <.theme_toggle />
+            </div>
+          </div>
+
+          {render_slot(@inner_block)}
+        </section>
+      </div>
+    </.app>
+    """
+  end
+
+  def theme_toggle(assigns) do
+    ~H"""
+    <div
+      id="theme-toggle"
+      class="metrics-theme-toggle"
+      data-active-theme="system"
+      role="group"
+      aria-label="Theme switcher"
+    >
+      <button
+        id="theme-system"
+        type="button"
+        class="metrics-theme-toggle-button"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="system"
+        aria-label="Use system theme"
+        aria-pressed="true"
+      >
+        <.icon name="hero-computer-desktop" class="size-4" />
+      </button>
+      <button
+        id="theme-light"
+        type="button"
+        class="metrics-theme-toggle-button"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="light"
+        aria-label="Use light theme"
+        aria-pressed="false"
+      >
+        <.icon name="hero-sun" class="size-4" />
+      </button>
+      <button
+        id="theme-dark"
+        type="button"
+        class="metrics-theme-toggle-button"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="dark"
+        aria-label="Use dark theme"
+        aria-pressed="false"
+      >
+        <.icon name="hero-moon" class="size-4" />
+      </button>
     </div>
     """
   end

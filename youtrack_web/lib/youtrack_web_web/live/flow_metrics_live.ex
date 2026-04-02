@@ -829,40 +829,40 @@ defmodule YoutrackWeb.FlowMetricsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="metrics-shell">
-        <.metrics_sidebar
-          config={@config}
-          active_section="flow_metrics"
-          freshness={@fetch_cache_state}
-        />
-
-      <section class="metrics-content">
-        <div class="space-y-6 pb-10">
+    <Layouts.dashboard
+      flash={@flash}
+      current_scope={@current_scope}
+      config={@config}
+      active_section="flow_metrics"
+      freshness={@fetch_cache_state}
+      topbar_label="Live view"
+      topbar_hint="Switch theme once here; the same preference follows every metrics route."
+    >
+      <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">Section</p>
-                <h2 class="metrics-brand mt-2 text-4xl leading-none text-stone-50">Flow Metrics</h2>
-                <p class="mt-3 text-stone-300">Progress, energy, togetherness, autonomy views from the same YouTrack query.</p>
+                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Flow Metrics</h2>
+                <p class="metrics-copy mt-3">Progress, energy, togetherness, autonomy views from the same YouTrack query.</p>
               </div>
               <div class="flex gap-2">
-                <button id="toggle-flow-config" type="button" phx-click="toggle_config" class="rounded-lg border border-orange-300/30 bg-orange-300/10 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/20">
+                <button id="toggle-flow-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">
                   {if(@config_open?, do: "Hide config", else: "Show config")}
                 </button>
-                <button id="fetch-flow-data" type="button" phx-click="fetch_data" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">
+                <button id="fetch-flow-data" type="button" phx-click="fetch_data" class="metrics-button metrics-button-primary font-semibold">
                   Fetch (cache)
                 </button>
-                <button id="fetch-flow-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="rounded-lg border border-orange-300/30 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/10">
+                <button id="fetch-flow-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">
                   Refresh (API)
                 </button>
-                <button id="clear-flow-cache" type="button" phx-click="clear_cache" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">
+                <button id="clear-flow-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">
                   Clear cache
                 </button>
               </div>
             </div>
             <%= if @fetch_cache_state do %>
-              <p id="flow-cache-state" class="mt-3 text-xs uppercase tracking-[0.2em] text-orange-200/70">
+              <p id="flow-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
                 Last fetch source: {cache_state_label(@fetch_cache_state)}
               </p>
             <% end %>
@@ -874,7 +874,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
 
           <%= if @config_open? do %>
             <section class="metrics-card rounded-[2rem] p-6">
-              <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Configuration</p>
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
               <.form for={@config_form} id="flow-config-form" phx-change="config_changed" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <.input field={@config_form[:base_url]} type="text" label="Base URL" />
                 <.input field={@config_form[:token]} type="password" label="Token" />
@@ -895,11 +895,11 @@ defmodule YoutrackWeb.FlowMetricsLive do
           <% end %>
 
           <%= if @loading? or @activity_progress do %>
-            <div class="metrics-card rounded-[2rem] p-10 text-center text-stone-300">
+            <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
               <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-stone-700 border-t-orange-400"></div>
               <p>Fetching issues, activities, and work-item projections...</p>
               <%= if @activity_progress do %>
-                <p id="activities-progress" class="mt-3 text-sm text-orange-200">
+                <p id="activities-progress" class="metrics-eyebrow mt-3 text-sm">
                   Activities progress: {@activity_progress.done}/{@activity_progress.total}
                 </p>
               <% end %>
@@ -945,10 +945,8 @@ defmodule YoutrackWeb.FlowMetricsLive do
               </div>
             </div>
           <% end %>
-        </div>
-      </section>
       </div>
-    </Layouts.app>
+    </Layouts.dashboard>
     """
   end
 
@@ -959,16 +957,16 @@ defmodule YoutrackWeb.FlowMetricsLive do
   defp stat_card(assigns) do
     ~H"""
     <div class={["rounded-[1.5rem] border px-4 py-4", stat_card_classes(@tone)]}>
-      <p class="text-xs uppercase tracking-[0.22em] text-stone-400">{@label}</p>
-      <p class="mt-3 text-xl font-semibold text-stone-50">{@value}</p>
+      <p class="metrics-stat-label text-xs uppercase tracking-[0.22em]">{@label}</p>
+      <p class="metrics-stat-value mt-3 text-xl font-semibold">{@value}</p>
     </div>
     """
   end
 
-  defp stat_card_classes("accent"), do: "border-orange-200/20 bg-orange-200/5 text-orange-100"
-  defp stat_card_classes("success"), do: "border-emerald-200/20 bg-emerald-200/5 text-emerald-100"
-  defp stat_card_classes("warning"), do: "border-yellow-200/20 bg-yellow-200/5 text-yellow-100"
-  defp stat_card_classes(_), do: "border-stone-500/20 bg-stone-500/5"
+  defp stat_card_classes("accent"), do: "metrics-pill-accent"
+  defp stat_card_classes("success"), do: "metrics-pill-success"
+  defp stat_card_classes("warning"), do: "metrics-button-secondary"
+  defp stat_card_classes(_), do: "metrics-pill-muted"
 
   defp metric(metrics, key) do
     case Map.get(metrics, key) do

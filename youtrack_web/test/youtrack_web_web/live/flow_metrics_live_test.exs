@@ -6,6 +6,8 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
   test "renders flow metrics shell", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/flow-metrics")
 
+    assert has_element?(view, "#theme-toggle")
+    assert has_element?(view, "#theme-dark")
     assert has_element?(view, "#flow-config-form")
     assert has_element?(view, "#fetch-flow-data")
     assert has_element?(view, "#clear-flow-cache")

@@ -50,76 +50,25 @@ defmodule YoutrackWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="metrics-shell">
-        <aside class="metrics-sidebar px-5 py-6 sm:px-6">
-          <div class="space-y-6">
-            <div class="space-y-3">
-              <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">Local cockpit</p>
-              <div class="space-y-2">
-                <h1 class="metrics-brand text-4xl leading-none text-stone-50">YouTrack Metrics</h1>
-                <p class="max-w-xs text-sm leading-6 text-stone-300">
-                  One shared control surface for the live YouTrack views: keep defaults here,
-                  then jump into the section that answers the question you actually have.
-                </p>
-              </div>
-            </div>
-
-            <nav aria-label="Dashboard sections" class="space-y-2">
-              <%= for section <- @sections do %>
-                <.link
-                  id={"nav-#{section.id}"}
-                  navigate={section_path(section.id)}
-                  class="metrics-link block rounded-3xl border border-white/8 bg-white/3 px-4 py-3 text-stone-300 hover:border-orange-200/30 hover:bg-white/6"
-                >
-                  <div class="flex items-start justify-between gap-4">
-                    <div>
-                      <p class="text-sm font-semibold">{section.label}</p>
-                      <p class="mt-1 text-xs uppercase tracking-[0.2em] text-stone-400">
-                        {section.visuals}
-                      </p>
-                    </div>
-                    <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-200">
-                      {section.stage}
-                    </span>
-                  </div>
-                </.link>
-              <% end %>
-            </nav>
-
-            <div class="metrics-card rounded-3xl p-4">
-              <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Shared paths</p>
-              <dl class="mt-3 space-y-3 text-sm text-stone-200">
-                <div>
-                  <dt class="text-stone-400">Workstreams</dt>
-                  <dd class="metrics-code mt-1 text-xs text-orange-100">
-                    {@config["workstreams_path"]}
-                  </dd>
-                </div>
-                <div>
-                  <dt class="text-stone-400">Prompts</dt>
-                  <dd class="metrics-code mt-1 text-xs text-orange-100">
-                    {@config["prompts_path"]}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </div>
-        </aside>
-
-        <section class="metrics-content">
-          <div class="mx-auto max-w-7xl space-y-6">
+    <Layouts.dashboard
+      flash={@flash}
+      current_scope={@current_scope}
+      config={@config}
+      topbar_label="Dashboard"
+      topbar_hint="Your team metrics. From humans to humans (through genies)"
+    >
+      <div class="mx-auto max-w-7xl space-y-6">
             <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
               <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] xl:items-end">
                 <div class="max-w-3xl space-y-5">
-                  <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">
+                  <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">
                     Dashboard home
                   </p>
                   <div class="space-y-3">
-                    <h2 id="dashboard-home-title" class="metrics-brand text-5xl leading-none text-stone-50">
+                    <h2 id="dashboard-home-title" class="metrics-brand metrics-title text-5xl leading-none">
                       Choose a live workflow
                     </h2>
-                    <p class="max-w-2xl text-base leading-7 text-stone-300">
+                    <p class="metrics-copy max-w-2xl text-base leading-7">
                       The scaffold is gone. Each route below opens a working LiveView that can fetch,
                       compute, and render actual YouTrack-backed results with the shared configuration
                       shown on this page.
@@ -127,22 +76,22 @@ defmodule YoutrackWeb.DashboardLive do
                   </div>
 
                   <div class="flex flex-wrap gap-2">
-                    <span class="rounded-full border border-orange-200/20 bg-orange-200/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-orange-100">
+                    <span class="metrics-pill metrics-pill-accent">
                       Shared defaults
                     </span>
-                    <span class="rounded-full border border-white/10 bg-white/6 px-3 py-2 text-xs uppercase tracking-[0.18em] text-stone-200">
+                    <span class="metrics-pill metrics-pill-muted">
                       Real routes
                     </span>
-                    <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-emerald-200">
+                    <span class="metrics-pill metrics-pill-success">
                       Ready sections
                     </span>
                   </div>
                 </div>
 
                 <div class="space-y-4">
-                  <div class="rounded-[1.75rem] border border-white/10 bg-black/15 p-5">
-                    <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Fast path</p>
-                    <ol class="mt-4 space-y-3 text-sm leading-6 text-stone-200">
+                  <div class="metrics-subtle-panel rounded-[1.75rem] p-5">
+                    <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Fast path</p>
+                    <ol class="metrics-title mt-4 space-y-3 text-sm leading-6">
                       <li>Review shared paths and environment-backed defaults.</li>
                       <li>Pick the page that matches the analysis you need.</li>
                       <li>Run the fetch/build action there to render real data.</li>
@@ -163,8 +112,8 @@ defmodule YoutrackWeb.DashboardLive do
                 <section class="metrics-card rounded-[2rem] p-6">
                   <div class="flex items-center justify-between gap-4">
                     <div>
-                      <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Shared configuration</p>
-                      <h3 class="mt-2 text-2xl font-semibold text-stone-50">
+                      <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Shared configuration</p>
+                      <h3 class="metrics-title mt-2 text-2xl font-semibold">
                         Live defaults, same sources
                       </h3>
                     </div>
@@ -172,7 +121,7 @@ defmodule YoutrackWeb.DashboardLive do
                       id="toggle-shared-config"
                       type="button"
                       phx-click="toggle_config"
-                      class="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-200 transition hover:border-orange-200/40 hover:bg-white/6"
+                      class="metrics-button metrics-button-ghost rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em]"
                     >
                       <%= if @config_open? do %>
                         Collapse
@@ -219,30 +168,30 @@ defmodule YoutrackWeb.DashboardLive do
                 </section>
 
                 <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Sections</p>
-                  <h3 class="mt-2 text-2xl font-semibold text-stone-50">Open a live view</h3>
-                  <p class="mt-2 max-w-2xl text-sm leading-6 text-stone-300">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Sections</p>
+                  <h3 class="metrics-title mt-2 text-2xl font-semibold">Open a live view</h3>
+                  <p class="metrics-copy mt-2 max-w-2xl text-sm leading-6">
                     These cards are direct entry points, not placeholders. Open the page that matches
                     the decision you need to make.
                   </p>
                   <div class="mt-5 grid gap-4 md:grid-cols-2">
                     <%= for section <- @sections do %>
-                      <div class="rounded-[1.5rem] border border-white/10 bg-white/5 p-4 transition hover:border-orange-200/30 hover:bg-white/7">
+                      <div class="metrics-subtle-panel rounded-[1.5rem] p-4 transition hover:border-[color:color-mix(in_oklab,var(--metrics-accent)_30%,transparent)] hover:bg-[color:color-mix(in_oklab,var(--metrics-text)_7%,transparent)]">
                         <div class="flex items-start justify-between gap-4">
                           <div>
-                            <h4 class="text-lg font-semibold text-stone-50">{section.label}</h4>
-                            <p class="mt-1 text-xs uppercase tracking-[0.2em] text-orange-200/70">
+                            <h4 class="metrics-title text-lg font-semibold">{section.label}</h4>
+                            <p class="metrics-eyebrow mt-1 text-xs uppercase tracking-[0.2em]">
                               {section.visuals}
                             </p>
-                            <p class="mt-2 text-sm leading-6 text-stone-300">{section.description}</p>
+                            <p class="metrics-copy mt-2 text-sm leading-6">{section.description}</p>
                           </div>
-                          <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-200">
+                          <span class="metrics-pill metrics-pill-success px-2 py-1 text-[11px]">
                             {section.stage}
                           </span>
                         </div>
                         <div class="mt-4 flex flex-wrap gap-2">
                           <%= for highlight <- section.highlights do %>
-                            <span class="rounded-full border border-orange-200/20 bg-orange-200/8 px-3 py-2 text-xs text-orange-100">
+                            <span class="metrics-pill metrics-pill-accent px-3 py-2 normal-case tracking-normal text-xs">
                               {highlight}
                             </span>
                           <% end %>
@@ -250,7 +199,7 @@ defmodule YoutrackWeb.DashboardLive do
                         <.link
                           id={"open-#{section.id}"}
                           navigate={section_path(section.id)}
-                          class="mt-5 inline-flex rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300"
+                          class="metrics-button metrics-button-primary mt-5 text-sm font-semibold"
                         >
                           Open {section.label}
                         </.link>
@@ -262,33 +211,31 @@ defmodule YoutrackWeb.DashboardLive do
 
               <aside class="space-y-6">
                 <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Working model</p>
-                  <div class="mt-4 space-y-4 text-sm leading-6 text-stone-300">
-                    <div class="rounded-2xl border border-white/8 bg-white/4 p-4">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Working model</p>
+                  <div class="metrics-copy mt-4 space-y-4 text-sm leading-6">
+                    <div class="metrics-subtle-panel rounded-2xl p-4">
                       Defaults are loaded from environment variables and prefilled into every section form.
                     </div>
-                    <div class="rounded-2xl border border-white/8 bg-white/4 p-4">
+                    <div class="metrics-subtle-panel rounded-2xl p-4">
                       This page is intentionally narrow: choose a route here, do the actual analysis there.
                     </div>
-                    <div class="rounded-2xl border border-white/8 bg-white/4 p-4">
+                    <div class="metrics-subtle-panel rounded-2xl p-4">
                       Section pages own the real fetch, cache, chart, and report flows against YouTrack data.
                     </div>
                   </div>
                 </section>
 
                 <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Preview</p>
-                  <h3 class="mt-2 text-xl font-semibold text-stone-50">Effective config snapshot</h3>
-                  <div class="metrics-code mt-4 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs leading-6 text-orange-100">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Preview</p>
+                  <h3 class="metrics-title mt-2 text-xl font-semibold">Effective config snapshot</h3>
+                  <div class="metrics-code metrics-code-panel mt-4 overflow-x-auto rounded-3xl p-4 text-xs leading-6">
                     <pre>{Jason.encode_to_iodata!(@config, pretty: true)}</pre>
                   </div>
                 </section>
               </aside>
             </div>
-          </div>
-        </section>
       </div>
-    </Layouts.app>
+    </Layouts.dashboard>
     """
   end
 
@@ -302,15 +249,15 @@ defmodule YoutrackWeb.DashboardLive do
       "rounded-[1.5rem] border px-4 py-4",
       stat_card_classes(@tone)
     ]}>
-      <p class="text-xs uppercase tracking-[0.22em] text-stone-400">{@label}</p>
-      <p class="mt-3 text-xl font-semibold text-stone-50">{@value}</p>
+      <p class="metrics-stat-label text-xs uppercase tracking-[0.22em]">{@label}</p>
+      <p class="metrics-stat-value mt-3 text-xl font-semibold">{@value}</p>
     </div>
     """
   end
 
-  defp stat_card_classes("accent"), do: "border-orange-200/30 bg-orange-200/10"
-  defp stat_card_classes("success"), do: "border-emerald-200/25 bg-emerald-200/10"
-  defp stat_card_classes(_tone), do: "border-white/10 bg-white/5"
+  defp stat_card_classes("accent"), do: "metrics-pill-accent"
+  defp stat_card_classes("success"), do: "metrics-pill-success"
+  defp stat_card_classes(_tone), do: "metrics-pill-muted"
 
   defp section_path("flow_metrics"), do: ~p"/flow-metrics"
   defp section_path("gantt"), do: ~p"/gantt"

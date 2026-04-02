@@ -700,32 +700,32 @@ defmodule YoutrackWeb.WeeklyReportLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="metrics-shell">
-        <.metrics_sidebar
-          config={@config}
-          active_section="weekly_report"
-          freshness={@fetch_cache_state}
-        />
-
-      <section class="metrics-content">
-        <div class="space-y-6 pb-10">
+    <Layouts.dashboard
+      flash={@flash}
+      current_scope={@current_scope}
+      config={@config}
+      active_section="weekly_report"
+      freshness={@fetch_cache_state}
+      topbar_label="Live view"
+      topbar_hint="Theme preference carries through report building, prompt preview, and LLM output."
+    >
+      <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">Section</p>
-                <h2 class="metrics-brand mt-2 text-4xl leading-none text-stone-50">Weekly Report</h2>
-                <p class="mt-3 text-stone-300">Build daily/weekly payloads and generate leadership-ready narrative with optional LLM.</p>
+                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Weekly Report</h2>
+                <p class="metrics-copy mt-3">Build daily/weekly payloads and generate leadership-ready narrative with optional LLM.</p>
               </div>
               <div class="flex gap-2">
-                <button id="toggle-weekly-config" type="button" phx-click="toggle_config" class="rounded-lg border border-orange-300/30 bg-orange-300/10 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/20">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
-                <button id="build-weekly-report" type="button" phx-click="build_report" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Build (cache)</button>
-                <button id="build-weekly-report-refresh" type="button" phx-click="build_report" phx-value-refresh="true" class="rounded-lg border border-orange-300/30 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/10">Rebuild (API)</button>
-                <button id="clear-weekly-cache" type="button" phx-click="clear_cache" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">Clear cache</button>
+                <button id="toggle-weekly-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
+                <button id="build-weekly-report" type="button" phx-click="build_report" class="metrics-button metrics-button-primary font-semibold">Build (cache)</button>
+                <button id="build-weekly-report-refresh" type="button" phx-click="build_report" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Rebuild (API)</button>
+                <button id="clear-weekly-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
               </div>
             </div>
             <%= if @fetch_cache_state do %>
-              <p id="weekly-cache-state" class="mt-3 text-xs uppercase tracking-[0.2em] text-orange-200/70">
+              <p id="weekly-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
                 Last fetch source: {cache_state_label(@fetch_cache_state)}
               </p>
             <% end %>
@@ -737,11 +737,11 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
           <%= if @config_open? do %>
             <section class="metrics-card rounded-[2rem] p-6">
-              <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Configuration</p>
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
               <.form for={@config_form} id="weekly-config-form" phx-change="config_changed" class="mt-4">
                 <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  <div class="rounded-3xl border border-white/10 bg-black/10 p-4">
-                    <p class="text-xs uppercase tracking-[0.22em] text-stone-400">Project and Querying</p>
+                  <div class="metrics-subtle-panel rounded-3xl p-4">
+                    <p class="metrics-copy text-xs uppercase tracking-[0.22em]">Project and Querying</p>
                     <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                       <.input field={@config_form[:base_url]} type="text" label="Base URL" />
                       <.input field={@config_form[:token]} type="password" label="Token" />
@@ -765,25 +765,25 @@ defmodule YoutrackWeb.WeeklyReportLive do
                     </div>
                   </div>
 
-                  <div class="rounded-3xl border border-orange-300/20 bg-orange-300/5 p-4">
-                    <p class="text-xs uppercase tracking-[0.22em] text-orange-100">Send to LLM</p>
+                  <div class="metrics-subtle-panel rounded-3xl p-4">
+                    <p class="metrics-eyebrow text-xs uppercase tracking-[0.22em]">Send to LLM</p>
                     <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div class="md:col-span-2">
                         <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
-                        <p class="mt-1 text-xs text-stone-400">Use .prompts/ (or prompts/) with .md and .txt files for reusable prompt templates.</p>
+                        <p class="metrics-copy mt-1 text-xs">Use .prompts/ (or prompts/) with .md and .txt files for reusable prompt templates.</p>
                       </div>
                       <.input field={@config_form[:prompt_source]} type="select" label="Prompt source" options={prompt_source_options(@prompt_files)} />
 
                       <div class="md:col-span-2">
-                        <div class="flex items-center justify-between gap-3 rounded-2xl border border-white/10 px-3 py-2">
-                          <p class="text-sm text-stone-200">Available models</p>
-                          <button id="refresh-llm-models" type="button" phx-click="refresh_llm_models" class="rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-100 hover:border-orange-300/40">Refresh list</button>
+                        <div class="metrics-subtle-panel flex items-center justify-between gap-3 rounded-2xl px-3 py-2">
+                          <p class="metrics-title text-sm">Available models</p>
+                          <button id="refresh-llm-models" type="button" phx-click="refresh_llm_models" class="metrics-button metrics-button-ghost px-3 py-2 text-xs">Refresh list</button>
                         </div>
                         <%= if @llm_models_loading? do %>
-                          <p class="mt-2 text-xs text-stone-400">Loading models from provider...</p>
+                          <p class="metrics-copy mt-2 text-xs">Loading models from provider...</p>
                         <% end %>
                         <%= if @llm_models_error do %>
-                          <p class="mt-2 text-xs text-red-300">{@llm_models_error}</p>
+                          <p class="metrics-error-copy mt-2 text-xs">{@llm_models_error}</p>
                         <% end %>
                       </div>
 
@@ -806,7 +806,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
           <% end %>
 
           <%= if @loading? do %>
-            <div class="metrics-card rounded-[2rem] p-8 text-stone-300">Building report payload from issues and activities...</div>
+            <div class="metrics-card metrics-copy rounded-4xl p-8">Building report payload from issues and activities...</div>
           <% end %>
 
           <%= if @report_data do %>
@@ -819,12 +819,12 @@ defmodule YoutrackWeb.WeeklyReportLive do
             </div>
 
             <%= if @active_tab == "summary" do %>
-              <section class="metrics-card rounded-[2rem] p-6">
-                <h3 class="text-xl font-semibold text-stone-50">Report Summary</h3>
+              <section class="metrics-card rounded-4xl p-6">
+                <h3 class="metrics-title text-xl font-semibold">Report Summary</h3>
                 <div class="mt-4 overflow-x-auto">
-                  <table class="min-w-full text-sm text-stone-200">
+                  <table class="metrics-table min-w-full text-sm">
                     <thead>
-                      <tr class="border-b border-white/10 text-stone-400">
+                      <tr class="border-b">
                         <th class="px-3 py-2 text-left">Window</th>
                         <th class="px-3 py-2 text-left">Issues touched</th>
                         <th class="px-3 py-2 text-left">Completed</th>
@@ -832,7 +832,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
                     </thead>
                     <tbody>
                       <%= for row <- @report_data.summary_rows do %>
-                        <tr class="border-b border-white/5">
+                        <tr class="border-b">
                           <td class="px-3 py-2">{row.window}</td>
                           <td class="px-3 py-2">{row.issues}</td>
                           <td class="px-3 py-2">{row.completed}</td>
@@ -845,25 +845,25 @@ defmodule YoutrackWeb.WeeklyReportLive do
             <% end %>
 
             <%= if @active_tab == "json" do %>
-              <section class="metrics-card rounded-[2rem] p-6">
-                <h3 class="text-xl font-semibold text-stone-50">JSON Preview</h3>
-                <div class="metrics-code mt-4 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+              <section class="metrics-card rounded-4xl p-6">
+                <h3 class="metrics-title text-xl font-semibold">JSON Preview</h3>
+                <div class="metrics-code metrics-code-panel mt-4 overflow-x-auto rounded-3xl p-4 text-xs">
                   <pre>{truncate(@report_data.report_json, parse_int(@config["json_preview_limit"], 4000))}</pre>
                 </div>
               </section>
             <% end %>
 
             <%= if @active_tab == "payload" do %>
-              <section class="metrics-card rounded-[2rem] p-6 space-y-6">
+              <section class="metrics-card rounded-4xl p-6 space-y-6">
                 <div>
-                  <h3 class="text-xl font-semibold text-stone-50">Weekly Payload</h3>
-                  <div class="metrics-code mt-3 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                  <h3 class="metrics-title text-xl font-semibold">Weekly Payload</h3>
+                  <div class="metrics-code metrics-code-panel mt-3 overflow-x-auto rounded-3xl p-4 text-xs">
                     <pre>{truncate(@report_data.weekly_json, 3000)}</pre>
                   </div>
                 </div>
                 <div>
-                  <h3 class="text-xl font-semibold text-stone-50">Daily Payload</h3>
-                  <div class="metrics-code mt-3 overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                  <h3 class="metrics-title text-xl font-semibold">Daily Payload</h3>
+                  <div class="metrics-code metrics-code-panel mt-3 overflow-x-auto rounded-3xl p-4 text-xs">
                     <pre>{truncate(@report_data.daily_json, 3000)}</pre>
                   </div>
                 </div>
@@ -871,48 +871,46 @@ defmodule YoutrackWeb.WeeklyReportLive do
             <% end %>
 
             <%= if @active_tab == "copy" do %>
-              <section class="metrics-card rounded-[2rem] p-6 space-y-4">
-                <h3 class="text-xl font-semibold text-stone-50">Copy / Download</h3>
-                <a id="download-weekly-json" href={data_uri(@report_data.weekly_json)} download="weekly-report.json" class="inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Download weekly JSON</a>
-                <a id="download-daily-json" href={data_uri(@report_data.daily_json)} download="daily-report.json" class="inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Download daily JSON</a>
-                <a id="download-full-json" href={data_uri(@report_data.report_json)} download="full-report.json" class="inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Download full JSON</a>
+              <section class="metrics-card rounded-4xl p-6 space-y-4">
+                <h3 class="metrics-title text-xl font-semibold">Copy / Download</h3>
+                <a id="download-weekly-json" href={data_uri(@report_data.weekly_json)} download="weekly-report.json" class="metrics-button metrics-button-ghost text-sm">Download weekly JSON</a>
+                <a id="download-daily-json" href={data_uri(@report_data.daily_json)} download="daily-report.json" class="metrics-button metrics-button-ghost text-sm">Download daily JSON</a>
+                <a id="download-full-json" href={data_uri(@report_data.report_json)} download="full-report.json" class="metrics-button metrics-button-ghost text-sm">Download full JSON</a>
               </section>
             <% end %>
 
             <%= if @active_tab == "llm" do %>
-              <section class="metrics-card rounded-[2rem] p-6 space-y-4">
-                <h3 class="text-xl font-semibold text-stone-50">LLM Summary</h3>
+              <section class="metrics-card rounded-4xl p-6 space-y-4">
+                <h3 class="metrics-title text-xl font-semibold">LLM Summary</h3>
                 <div class="flex gap-2">
-                  <button id="generate-prompt" type="button" phx-click="generate_prompt" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-100 hover:border-orange-300/40">Generate prompt</button>
-                  <button id="send-to-llm" type="button" phx-click="send_to_llm" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Send to LLM</button>
+                  <button id="generate-prompt" type="button" phx-click="generate_prompt" class="metrics-button metrics-button-ghost text-sm">Generate prompt</button>
+                  <button id="send-to-llm" type="button" phx-click="send_to_llm" class="metrics-button metrics-button-primary text-sm font-semibold">Send to LLM</button>
                 </div>
 
                 <%= if @llm_loading? do %>
-                  <p class="text-stone-300">Calling LLM endpoint...</p>
+                  <p class="metrics-copy">Calling LLM endpoint...</p>
                 <% end %>
 
                 <%= if @llm_error do %>
-                  <p class="text-red-300">{@llm_error}</p>
+                  <p class="metrics-error-copy">{@llm_error}</p>
                 <% end %>
 
                 <%= if @prompt_preview do %>
-                  <div class="metrics-code overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                  <div class="metrics-code metrics-code-panel overflow-x-auto rounded-3xl p-4 text-xs">
                     <pre>{truncate(@prompt_preview, 4000)}</pre>
                   </div>
                 <% end %>
 
                 <%= if @llm_response do %>
-                  <div class="rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-4 text-sm text-emerald-100">
+                  <div class="metrics-success-panel rounded-2xl p-4 text-sm">
                     <pre>{@llm_response}</pre>
                   </div>
                 <% end %>
               </section>
             <% end %>
           <% end %>
-        </div>
-      </section>
       </div>
-    </Layouts.app>
+    </Layouts.dashboard>
     """
   end
 
@@ -960,9 +958,9 @@ defmodule YoutrackWeb.WeeklyReportLive do
     base = "rounded-lg border px-3 py-2 text-sm"
 
     if active? do
-      base <> " border-orange-300/60 bg-orange-300/12 text-orange-100"
+      base <> " metrics-tab-active"
     else
-      base <> " border-white/10 text-stone-200 hover:border-orange-300/40"
+      base <> " metrics-tab-idle"
     end
   end
 

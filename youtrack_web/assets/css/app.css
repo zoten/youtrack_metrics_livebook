@@ -7,6 +7,76 @@
 @source "../../lib/youtrack_web_web";
 
 @plugin "../vendor/heroicons";
+@plugin "../vendor/daisyui.js" {
+  themes: false;
+}
+
+@plugin "../vendor/daisyui-theme.js" {
+  name: "light";
+  default: true;
+  color-scheme: light;
+  --color-base-100: oklch(98% 0.012 72);
+  --color-base-200: oklch(95% 0.016 72);
+  --color-base-300: oklch(91% 0.02 72);
+  --color-base-content: oklch(26% 0.025 38);
+  --color-primary: oklch(68% 0.19 36);
+  --color-primary-content: oklch(98% 0.01 72);
+  --color-secondary: oklch(75% 0.14 85);
+  --color-secondary-content: oklch(28% 0.03 38);
+  --color-accent: oklch(63% 0.12 206);
+  --color-accent-content: oklch(97% 0.01 206);
+  --color-neutral: oklch(38% 0.03 35);
+  --color-neutral-content: oklch(95% 0.01 72);
+  --color-info: oklch(70% 0.11 235);
+  --color-info-content: oklch(20% 0.03 235);
+  --color-success: oklch(74% 0.15 158);
+  --color-success-content: oklch(22% 0.03 158);
+  --color-warning: oklch(82% 0.16 82);
+  --color-warning-content: oklch(28% 0.05 60);
+  --color-error: oklch(68% 0.2 25);
+  --color-error-content: oklch(22% 0.05 25);
+  --radius-selector: 999px;
+  --radius-field: 1rem;
+  --radius-box: 1.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@plugin "../vendor/daisyui-theme.js" {
+  name: "dark";
+  color-scheme: dark;
+  --color-base-100: oklch(17% 0.015 28);
+  --color-base-200: oklch(21% 0.017 28);
+  --color-base-300: oklch(26% 0.02 28);
+  --color-base-content: oklch(95% 0.015 58);
+  --color-primary: oklch(72% 0.19 36);
+  --color-primary-content: oklch(18% 0.03 30);
+  --color-secondary: oklch(82% 0.12 82);
+  --color-secondary-content: oklch(22% 0.04 66);
+  --color-accent: oklch(78% 0.09 210);
+  --color-accent-content: oklch(19% 0.03 210);
+  --color-neutral: oklch(30% 0.02 28);
+  --color-neutral-content: oklch(92% 0.015 58);
+  --color-info: oklch(76% 0.09 235);
+  --color-info-content: oklch(18% 0.03 235);
+  --color-success: oklch(78% 0.13 158);
+  --color-success-content: oklch(20% 0.03 158);
+  --color-warning: oklch(84% 0.14 82);
+  --color-warning-content: oklch(22% 0.04 60);
+  --color-error: oklch(74% 0.18 25);
+  --color-error-content: oklch(19% 0.04 25);
+  --radius-selector: 999px;
+  --radius-field: 1rem;
+  --radius-box: 1.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
 
 /* Add variants based on LiveView classes */
 @custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
@@ -20,32 +90,36 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 :root {
-  color-scheme: dark;
-  --metrics-bg: #161312;
-  --metrics-panel: rgba(35, 27, 25, 0.82);
-  --metrics-panel-strong: rgba(56, 41, 36, 0.94);
-  --metrics-border: rgba(244, 171, 139, 0.18);
-  --metrics-border-strong: rgba(244, 171, 139, 0.34);
-  --metrics-text: #f7efe8;
-  --metrics-muted: #cfb7a9;
-  --metrics-accent: #f97352;
-  --metrics-accent-soft: #ffcf7d;
-  --metrics-ok: #6dcf9f;
-  --metrics-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  --metrics-bg: var(--color-base-100);
+  --metrics-panel: color-mix(in oklab, var(--color-base-100) 86%, var(--color-neutral) 14%);
+  --metrics-panel-strong: color-mix(in oklab, var(--color-base-200) 72%, var(--color-neutral) 28%);
+  --metrics-border: color-mix(in oklab, var(--color-primary) 18%, transparent);
+  --metrics-border-strong: color-mix(in oklab, var(--color-primary) 34%, transparent);
+  --metrics-text: var(--color-base-content);
+  --metrics-muted: color-mix(in oklab, var(--color-base-content) 82%, var(--color-base-100) 18%);
+  --metrics-accent: var(--color-primary);
+  --metrics-accent-soft: var(--color-secondary);
+  --metrics-ok: var(--color-success);
+  --metrics-shadow: 0 24px 80px color-mix(in oklab, var(--color-neutral) 22%, transparent);
+  --metrics-glow-primary: color-mix(in oklab, var(--color-primary) 24%, transparent);
+  --metrics-glow-secondary: color-mix(in oklab, var(--color-secondary) 18%, transparent);
+  --metrics-sidebar-start: color-mix(in oklab, var(--color-neutral) 62%, var(--color-base-100) 38%);
+  --metrics-sidebar-end: color-mix(in oklab, var(--color-neutral) 82%, var(--color-base-100) 18%);
   --metrics-font: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   --metrics-sans: "Avenir Next", "Segoe UI", sans-serif;
 }
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(249, 115, 82, 0.22), transparent 32%),
-    radial-gradient(circle at right center, rgba(255, 207, 125, 0.16), transparent 26%),
-    linear-gradient(180deg, #161312 0%, #120f0f 100%);
+    radial-gradient(circle at top left, var(--metrics-glow-primary), transparent 32%),
+    radial-gradient(circle at right center, var(--metrics-glow-secondary), transparent 26%),
+    linear-gradient(180deg, var(--color-base-100) 0%, var(--color-base-200) 100%);
 }
 
 body {
   color: var(--metrics-text);
   font-family: var(--metrics-sans);
+  background: transparent;
 }
 
 .app-frame {
@@ -65,7 +139,7 @@ body {
 .metrics-sidebar {
   position: relative;
   border-right: 1px solid var(--metrics-border);
-  background: linear-gradient(180deg, rgba(27, 21, 20, 0.96), rgba(18, 15, 15, 0.98));
+  background: linear-gradient(180deg, var(--metrics-sidebar-start), var(--metrics-sidebar-end));
 }
 
 .metrics-sidebar::after {
@@ -78,6 +152,314 @@ body {
 
 .metrics-content {
   padding: 1.5rem;
+}
+
+.metrics-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 auto 1rem;
+  max-width: 80rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--metrics-border) 82%, transparent);
+  border-radius: 1.75rem;
+  background: color-mix(in oklab, var(--metrics-panel) 76%, transparent);
+  box-shadow: 0 18px 48px color-mix(in oklab, var(--color-neutral) 12%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.metrics-theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border: 1px solid var(--metrics-border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--metrics-panel) 88%, transparent);
+  box-shadow: var(--metrics-shadow);
+  backdrop-filter: blur(14px);
+}
+
+.metrics-theme-toggle::before {
+  position: absolute;
+  inset: 0.3rem auto 0.3rem 0.3rem;
+  width: calc(33.333% - 0.2rem);
+  border: 1px solid color-mix(in oklab, var(--metrics-border-strong) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-base-100) 84%, white 16%);
+  content: "";
+  transition: transform 180ms ease;
+}
+
+.metrics-theme-toggle[data-active-theme="light"]::before {
+  transform: translateX(calc(100% + 0.15rem));
+}
+
+.metrics-theme-toggle[data-active-theme="dark"]::before {
+  transform: translateX(calc(200% + 0.3rem));
+}
+
+.metrics-theme-toggle-button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  color: var(--metrics-muted);
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.metrics-theme-toggle-button:hover {
+  transform: translateY(-1px);
+  color: var(--metrics-text);
+}
+
+.metrics-theme-toggle-button[aria-pressed="true"] {
+  color: var(--metrics-text);
+}
+
+.metrics-theme-toggle-button:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--metrics-accent) 60%, white 40%);
+  outline-offset: 2px;
+}
+
+.metrics-topbar-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--metrics-muted);
+}
+
+.metrics-eyebrow {
+  color: color-mix(in oklab, var(--metrics-accent) 54%, var(--metrics-text) 46%);
+}
+
+.metrics-title {
+  color: var(--metrics-text);
+}
+
+.metrics-copy {
+  color: var(--metrics-muted);
+}
+
+.metrics-subtle-panel {
+  border: 1px solid color-mix(in oklab, var(--metrics-border) 72%, transparent);
+  background: color-mix(in oklab, var(--metrics-panel) 72%, transparent);
+}
+
+.metrics-code-panel {
+  border: 1px solid color-mix(in oklab, var(--metrics-border) 58%, transparent);
+  background: color-mix(in oklab, var(--color-neutral) 18%, var(--color-base-100) 82%);
+  color: color-mix(in oklab, var(--metrics-accent) 68%, var(--metrics-text) 32%);
+}
+
+.metrics-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--metrics-border);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.metrics-pill-accent {
+  border-color: color-mix(in oklab, var(--metrics-accent) 22%, transparent);
+  background: color-mix(in oklab, var(--metrics-accent) 12%, transparent);
+  color: color-mix(in oklab, var(--metrics-accent) 82%, var(--metrics-text) 18%);
+}
+
+.metrics-pill-muted {
+  border-color: color-mix(in oklab, var(--metrics-border) 72%, transparent);
+  background: color-mix(in oklab, var(--metrics-text) 6%, transparent);
+  color: var(--metrics-text);
+}
+
+.metrics-pill-success {
+  border-color: color-mix(in oklab, var(--metrics-ok) 24%, transparent);
+  background: color-mix(in oklab, var(--metrics-ok) 12%, transparent);
+  color: color-mix(in oklab, var(--metrics-ok) 76%, var(--metrics-text) 24%);
+}
+
+.metrics-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.metrics-button:hover {
+  transform: translateY(-1px);
+}
+
+.metrics-button-primary {
+  background: var(--metrics-accent);
+  color: color-mix(in oklab, var(--color-base-100) 18%, black 82%);
+}
+
+.metrics-button-primary:hover {
+  background: color-mix(in oklab, var(--metrics-accent) 88%, white 12%);
+}
+
+.metrics-button-secondary {
+  border: 1px solid color-mix(in oklab, var(--metrics-accent) 28%, transparent);
+  background: color-mix(in oklab, var(--metrics-accent) 10%, transparent);
+  color: color-mix(in oklab, var(--metrics-accent) 82%, var(--metrics-text) 18%);
+}
+
+.metrics-button-secondary:hover {
+  background: color-mix(in oklab, var(--metrics-accent) 16%, transparent);
+}
+
+.metrics-button-ghost {
+  border: 1px solid color-mix(in oklab, var(--metrics-border) 78%, transparent);
+  color: var(--metrics-text);
+}
+
+.metrics-button-ghost:hover {
+  border-color: color-mix(in oklab, var(--metrics-accent) 36%, transparent);
+  background: color-mix(in oklab, var(--metrics-text) 6%, transparent);
+}
+
+.metrics-nav-link {
+  color: var(--metrics-muted);
+}
+
+.metrics-nav-link-active {
+  border-color: color-mix(in oklab, var(--metrics-accent) 36%, transparent);
+  background: color-mix(in oklab, var(--metrics-accent) 12%, transparent);
+  color: color-mix(in oklab, var(--metrics-accent) 80%, var(--metrics-text) 20%);
+}
+
+.metrics-nav-link-idle {
+  border-color: color-mix(in oklab, var(--metrics-border) 66%, transparent);
+  background: color-mix(in oklab, var(--metrics-text) 4%, transparent);
+}
+
+.metrics-nav-link-idle:hover {
+  border-color: color-mix(in oklab, var(--metrics-accent) 24%, transparent);
+  background: color-mix(in oklab, var(--metrics-text) 7%, transparent);
+}
+
+.metrics-stat-label {
+  color: var(--metrics-muted);
+}
+
+.metrics-stat-value {
+  color: var(--metrics-text);
+}
+
+.metrics-form-label {
+  display: inline-block;
+  margin-bottom: 0.25rem;
+  color: var(--metrics-muted);
+  font-size: 0.875rem;
+}
+
+.metrics-form-control {
+  border-color: color-mix(in oklab, var(--metrics-border) 84%, transparent);
+  background: color-mix(in oklab, var(--color-base-100) 82%, var(--color-neutral) 18%);
+  color: var(--metrics-text);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
+}
+
+.metrics-form-control::placeholder {
+  color: var(--metrics-muted);
+}
+
+.metrics-form-control:focus,
+.metrics-form-control:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklab, var(--metrics-accent) 44%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--metrics-accent) 12%, transparent),
+    inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
+}
+
+.metrics-checkbox {
+  border-color: color-mix(in oklab, var(--metrics-border) 84%, transparent);
+  background: color-mix(in oklab, var(--color-base-100) 82%, var(--color-neutral) 18%);
+}
+
+.metrics-table {
+  width: 100%;
+  color: var(--metrics-text);
+}
+
+.metrics-table thead {
+  color: var(--metrics-muted);
+}
+
+.metrics-table tr {
+  border-color: color-mix(in oklab, var(--metrics-border) 54%, transparent);
+}
+
+.metrics-table tbody tr:nth-child(even) {
+  background: color-mix(in oklab, var(--metrics-text) 3%, transparent);
+}
+
+.metrics-chart-loading {
+  color: var(--metrics-muted);
+}
+
+.metrics-tab-active {
+  border-color: color-mix(in oklab, var(--metrics-accent) 48%, transparent);
+  background: color-mix(in oklab, var(--metrics-accent) 12%, transparent);
+  color: color-mix(in oklab, var(--metrics-accent) 82%, var(--metrics-text) 18%);
+}
+
+.metrics-tab-idle {
+  border-color: color-mix(in oklab, var(--metrics-border) 78%, transparent);
+  color: var(--metrics-text);
+}
+
+.metrics-tab-idle:hover {
+  border-color: color-mix(in oklab, var(--metrics-accent) 32%, transparent);
+  background: color-mix(in oklab, var(--metrics-text) 5%, transparent);
+}
+
+.metrics-success-panel {
+  border: 1px solid color-mix(in oklab, var(--metrics-ok) 24%, transparent);
+  background: color-mix(in oklab, var(--metrics-ok) 9%, transparent);
+  color: color-mix(in oklab, var(--metrics-ok) 68%, var(--metrics-text) 32%);
+}
+
+.metrics-error-copy {
+  color: color-mix(in oklab, var(--color-error) 72%, var(--metrics-text) 28%);
+}
+
+.metrics-spinner {
+  border-color: color-mix(in oklab, var(--metrics-border) 48%, transparent);
+  border-top-color: var(--metrics-accent);
+}
+
+[data-resolved-theme="light"] .metrics-topbar {
+  background: color-mix(in oklab, var(--color-base-100) 88%, white 12%);
+}
+
+[data-resolved-theme="light"] .metrics-theme-toggle {
+  background: color-mix(in oklab, var(--color-base-100) 92%, var(--color-primary) 8%);
+}
+
+[data-resolved-theme="light"] .metrics-theme-toggle::before {
+  background: color-mix(in oklab, white 92%, var(--color-primary) 8%);
+}
+
+[data-resolved-theme="light"] .metrics-button-primary {
+  color: white;
 }
 
 .metrics-card {
@@ -123,6 +505,11 @@ body {
 @media (max-width: 960px) {
   .metrics-shell {
     grid-template-columns: 1fr;
+  }
+
+  .metrics-topbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .metrics-sidebar {

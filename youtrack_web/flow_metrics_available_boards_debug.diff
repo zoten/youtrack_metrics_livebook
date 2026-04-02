@@ -1,0 +1,80 @@
+diff --git a/flow_metrics.livemd b/flow_metrics.livemd
+index 219ddfd..87821ac 100644
+--- a/flow_metrics.livemd
++++ b/flow_metrics.livemd
+@@ -137,6 +137,75 @@ end
+ Kino.nothing()
+ ```
+ 
++## Available Boards
++
++Fetches Agile boards visible to the current token and lists their names.
++
++```elixir
++boards_base_url = Kino.Input.read(base_url_in) |> String.trim()
++boards_token = Kino.Input.read(token_in) |> String.trim()
++
++if boards_base_url == "" or boards_token == "" do
++  Kino.Markdown.new("*Set **YouTrack base URL** and **Permanent token** to list available boards.*")
++else
++  boards_req = Client.new!(boards_base_url, boards_token)
++
++  boards =
++    Stream.unfold(0, fn
++      nil ->
++        nil
++
++      skip ->
++        resp =
++          Req.get!(boards_req,
++            url: "/api/agiles",
++            params: %{
++              "fields" => "id,name",
++              "$top" => 100,
++              "$skip" => skip
++            }
++          )
++
++        if resp.status != 200 do
++          raise "YouTrack API returned status #{resp.status} while fetching boards"
++        end
++
++        items = resp.body
++
++        cond do
++          not is_list(items) ->
++            raise "Expected list of boards, got: #{inspect(items) |> String.slice(0, 200)}"
++
++          items == [] ->
++            nil
++
++          length(items) < 100 ->
++            {items, nil}
++
++          true ->
++            {items, skip + 100}
++        end
++    end)
++    |> Enum.to_list()
++    |> List.flatten()
++
++  board_rows =
++    boards
++    |> Enum.map(fn board ->
++      %{id: board["id"], board_name: board["name"] || "(unnamed)"}
++    end)
++    |> Enum.sort_by(&String.downcase(&1.board_name))
++
++  Kino.render(Kino.Markdown.new("Found **#{length(board_rows)}** boards visible to this token."))
++
++  if board_rows == [] do
++    Kino.Markdown.new("*No boards returned by the API for this token.*")
++  else
++    Kino.DataTable.new(board_rows, name: "Available YouTrack Boards")
++  end
++end
++```
++
+ ## Fetch Issues
+ 
+ ```elixir

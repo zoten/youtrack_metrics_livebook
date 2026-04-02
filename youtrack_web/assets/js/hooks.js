@@ -1,9 +1,32 @@
 import * as vegaEmbed from 'vega-embed'
 
+const resolvedVegaTheme = () => {
+    const resolved = document.documentElement.dataset.resolvedTheme
+    return resolved === "light" ? undefined : "dark"
+}
+
 export default {
     mounted() {
         this.render()
-        this.handleEvent("update_spec", data => this.render())
+        this.handleEvent("update_spec", _data => this.render())
+
+        // Re-render charts when theme changes so the vega-embed background
+        // follows the page theme.
+        this._themeObserver = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.attributeName === "data-resolved-theme") {
+                    this.render()
+                    break
+                }
+            }
+        })
+        this._themeObserver.observe(document.documentElement, { attributes: true })
+    },
+
+    destroyed() {
+        if (this._themeObserver) {
+            this._themeObserver.disconnect()
+        }
     },
 
     updated() {
@@ -33,7 +56,7 @@ export default {
                     editor: false
                 },
                 hover: true,
-                theme: this.el.getAttribute("data-theme") || "dark"
+                theme: resolvedVegaTheme()
             }
 
             vegaEmbed.default(this.el, specObj, options)

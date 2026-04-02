@@ -7,11 +7,37 @@
     <.live_title default="YouTrack Metrics" suffix=" · Local Dashboard">
       {assigns[:page_title]}
     </.live_title>
+    <script>
+      (() => {
+        const storageKey = "phx:theme"
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+
+        try {
+          const storedTheme = window.localStorage.getItem(storageKey)
+
+          if (storedTheme === "light" || storedTheme === "dark") {
+            document.documentElement.setAttribute("data-theme", storedTheme)
+            document.documentElement.dataset.activeTheme = storedTheme
+            document.documentElement.dataset.resolvedTheme = storedTheme
+          } else {
+            const resolved = prefersDark ? "dark" : "light"
+            document.documentElement.setAttribute("data-theme", resolved)
+            document.documentElement.dataset.activeTheme = "system"
+            document.documentElement.dataset.resolvedTheme = resolved
+          }
+        } catch (_error) {
+          const resolved = prefersDark ? "dark" : "light"
+          document.documentElement.setAttribute("data-theme", resolved)
+          document.documentElement.dataset.activeTheme = "system"
+          document.documentElement.dataset.resolvedTheme = resolved
+        }
+      })()
+    </script>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
   </head>
-  <body class="min-h-screen bg-stone-950 text-stone-100 antialiased">
+  <body class="min-h-screen antialiased">
     {@inner_content}
   </body>
 </html>

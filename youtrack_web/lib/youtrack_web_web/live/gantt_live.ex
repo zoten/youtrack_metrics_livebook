@@ -645,30 +645,34 @@ defmodule YoutrackWeb.GanttLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="metrics-shell">
-        <.metrics_sidebar config={@config} active_section="gantt" freshness={@fetch_cache_state} />
-
-      <section class="metrics-content">
-        <div class="space-y-6 pb-10">
+    <Layouts.dashboard
+      flash={@flash}
+      current_scope={@current_scope}
+      config={@config}
+      active_section="gantt"
+      freshness={@fetch_cache_state}
+      topbar_label="Live view"
+      topbar_hint="Theme preference is shared while you classify streams and inspect gantt views."
+    >
+      <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p class="text-xs uppercase tracking-[0.28em] text-orange-200/70">Section</p>
-                <h2 class="metrics-brand mt-2 text-4xl leading-none text-stone-50">Gantt</h2>
-                <p class="mt-3 text-stone-300">Timelines, interrupts, and interactive stream classification.</p>
+                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Gantt</h2>
+                <p class="metrics-copy mt-3">Timelines, interrupts, and interactive stream classification.</p>
               </div>
               <div class="flex gap-2">
-                <button id="toggle-gantt-config" type="button" phx-click="toggle_config" class="rounded-lg border border-orange-300/30 bg-orange-300/10 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/20">
+                <button id="toggle-gantt-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">
                   {if(@config_open?, do: "Hide config", else: "Show config")}
                 </button>
-                <button id="fetch-gantt-data" type="button" phx-click="fetch_data" class="rounded-lg bg-orange-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Fetch (cache)</button>
-                <button id="fetch-gantt-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="rounded-lg border border-orange-300/30 px-4 py-2 text-sm text-orange-100 hover:bg-orange-300/10">Refresh (API)</button>
-                <button id="clear-gantt-cache" type="button" phx-click="clear_cache" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-stone-200 hover:border-orange-300/40 hover:text-orange-100">Clear cache</button>
+                <button id="fetch-gantt-data" type="button" phx-click="fetch_data" class="metrics-button metrics-button-primary font-semibold">Fetch (cache)</button>
+                <button id="fetch-gantt-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Refresh (API)</button>
+                <button id="clear-gantt-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
               </div>
             </div>
             <%= if @fetch_cache_state do %>
-              <p id="gantt-cache-state" class="mt-3 text-xs uppercase tracking-[0.2em] text-orange-200/70">
+              <p id="gantt-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
                 Last fetch source: {cache_state_label(@fetch_cache_state)}
               </p>
             <% end %>
@@ -680,7 +684,7 @@ defmodule YoutrackWeb.GanttLive do
 
           <%= if @config_open? do %>
             <section class="metrics-card rounded-[2rem] p-6 space-y-4">
-              <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Configuration</p>
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
               <.form for={@config_form} id="gantt-config-form" phx-change="config_changed" class="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <.input field={@config_form[:base_url]} type="text" label="Base URL" />
                 <.input field={@config_form[:token]} type="password" label="Token" />
@@ -697,15 +701,15 @@ defmodule YoutrackWeb.GanttLive do
               </.form>
 
               <div>
-                <label class="mb-2 block text-sm text-stone-200" for="rules-textarea">Stream rules (Elixir map literal)</label>
-                <textarea id="rules-textarea" name="rules" phx-change="rules_changed" class="w-full rounded-3xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-stone-100" rows="8">{@rules_text}</textarea>
+                <label class="metrics-form-label mb-2 block text-sm" for="rules-textarea">Stream rules (Elixir map literal)</label>
+                <textarea id="rules-textarea" name="rules" phx-change="rules_changed" class="metrics-form-control w-full rounded-3xl p-3 font-mono text-xs" rows="8">{@rules_text}</textarea>
                 <div class="mt-3 flex gap-2">
-                  <button id="export-rules" type="button" phx-click="export_rules" class="rounded-lg border border-white/10 px-3 py-2 text-sm text-stone-100 hover:border-orange-300/40">Export rules</button>
+                  <button id="export-rules" type="button" phx-click="export_rules" class="metrics-button metrics-button-ghost px-3 py-2 text-sm">Export rules</button>
                 </div>
               </div>
 
               <%= if @exported_rules do %>
-                <div class="metrics-code overflow-x-auto rounded-3xl border border-white/8 bg-black/20 p-4 text-xs text-orange-100">
+                <div class="metrics-code metrics-code-panel overflow-x-auto rounded-3xl p-4 text-xs">
                   <pre id="rules-export-output">{@exported_rules}</pre>
                 </div>
               <% end %>
@@ -713,8 +717,8 @@ defmodule YoutrackWeb.GanttLive do
           <% end %>
 
           <%= if @loading? do %>
-            <div class="metrics-card rounded-[2rem] p-10 text-center text-stone-300">
-              <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-stone-700 border-t-orange-400"></div>
+            <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
+              <div class="metrics-spinner mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4"></div>
               Fetching and building gantt data...
             </div>
           <% end %>
@@ -727,22 +731,22 @@ defmodule YoutrackWeb.GanttLive do
 
           <%= if @unclassified_stats != [] do %>
             <section class="metrics-card rounded-[2rem] p-6">
-              <p class="text-xs uppercase tracking-[0.24em] text-stone-400">Classifier</p>
-              <h3 class="mt-2 text-2xl font-semibold text-stone-50">Map unclassified slugs</h3>
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Classifier</p>
+              <h3 class="metrics-title mt-2 text-2xl font-semibold">Map unclassified slugs</h3>
               <div class="mt-4 space-y-3">
                 <%= for row <- Enum.take(@unclassified_stats, 12) do %>
-                  <.form for={%{}} as={:classify} phx-submit="classify_slug" class="grid grid-cols-1 gap-2 rounded-2xl border border-white/10 p-3 md:grid-cols-[minmax(0,1fr)_12rem_8rem] md:items-center">
+                  <.form for={%{}} as={:classify} phx-submit="classify_slug" class="metrics-subtle-panel grid grid-cols-1 gap-2 rounded-2xl p-3 md:grid-cols-[minmax(0,1fr)_12rem_8rem] md:items-center">
                     <input type="hidden" name="slug" value={row.slug} />
-                    <div class="text-sm text-stone-200">
-                      <span class="font-semibold text-orange-100">{row.slug}</span>
-                      <span class="ml-2 text-stone-400">({row.count})</span>
+                    <div class="metrics-title text-sm">
+                      <span class="font-semibold text-[color:var(--metrics-accent)]">{row.slug}</span>
+                      <span class="metrics-copy ml-2">({row.count})</span>
                     </div>
-                    <select name="stream" class="rounded-lg border border-white/10 bg-black/30 px-2 py-2 text-sm text-stone-100">
+                    <select name="stream" class="metrics-form-control rounded-lg px-2 py-2 text-sm">
                       <%= for stream <- stream_options(@rules) do %>
                         <option value={stream}>{stream}</option>
                       <% end %>
                     </select>
-                    <button type="submit" class="rounded-lg bg-orange-400 px-3 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-300">Apply</button>
+                    <button type="submit" class="metrics-button metrics-button-primary px-3 py-2 text-sm font-semibold">Apply</button>
                   </.form>
                 <% end %>
               </div>
@@ -764,10 +768,8 @@ defmodule YoutrackWeb.GanttLive do
               </div>
             </div>
           <% end %>
-        </div>
-      </section>
       </div>
-    </Layouts.app>
+    </Layouts.dashboard>
     """
   end
 
@@ -778,16 +780,16 @@ defmodule YoutrackWeb.GanttLive do
   defp stat_card(assigns) do
     ~H"""
     <div class={["rounded-[1.5rem] border px-4 py-4", stat_card_classes(@tone)]}>
-      <p class="text-xs uppercase tracking-[0.22em] text-stone-400">{@label}</p>
-      <p class="mt-3 text-xl font-semibold text-stone-50">{@value}</p>
+      <p class="metrics-stat-label text-xs uppercase tracking-[0.22em]">{@label}</p>
+      <p class="metrics-stat-value mt-3 text-xl font-semibold">{@value}</p>
     </div>
     """
   end
 
-  defp stat_card_classes("accent"), do: "border-orange-200/20 bg-orange-200/5 text-orange-100"
-  defp stat_card_classes("success"), do: "border-emerald-200/20 bg-emerald-200/5 text-emerald-100"
-  defp stat_card_classes("warning"), do: "border-yellow-200/20 bg-yellow-200/5 text-yellow-100"
-  defp stat_card_classes(_), do: "border-stone-500/20 bg-stone-500/5"
+  defp stat_card_classes("accent"), do: "metrics-pill-accent"
+  defp stat_card_classes("success"), do: "metrics-pill-success"
+  defp stat_card_classes("warning"), do: "metrics-button-secondary"
+  defp stat_card_classes(_), do: "metrics-pill-muted"
 
   defp stream_options(rules) do
     from_rules = rules.slug_prefix_to_stream |> Map.values() |> List.flatten() |> Enum.uniq()

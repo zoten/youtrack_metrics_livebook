@@ -29,6 +29,7 @@ import topbar from "../vendor/topbar"
 import VegaLite from "./hooks"
 
 const CONFIG_OPEN_STORAGE_KEY = "youtrack.config_open"
+const THEME_STORAGE_KEY = "phx:theme"
 
 const readConfigOpenPreference = () => {
   try {
@@ -52,6 +53,72 @@ const writeConfigOpenPreference = (isOpen) => {
   }
 }
 
+const normalizeThemePreference = (value) => {
+  if (value === "light" || value === "dark") {
+    return value
+  }
+
+  return "system"
+}
+
+const readThemePreference = () => {
+  try {
+    return normalizeThemePreference(window.localStorage.getItem(THEME_STORAGE_KEY))
+  } catch (_error) {
+    return "system"
+  }
+}
+
+const readResolvedTheme = () => {
+  if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    return "dark"
+  }
+
+  return "light"
+}
+
+const applyThemePreference = (theme) => {
+  const resolvedTheme = theme === "system" ? readResolvedTheme() : theme
+
+  // Always set data-theme explicitly so the DaisyUI token selector wins
+  // over any @media (prefers-color-scheme) rules in the cascade.
+  document.documentElement.setAttribute("data-theme", resolvedTheme)
+
+  document.documentElement.dataset.activeTheme = theme
+  document.documentElement.dataset.resolvedTheme = resolvedTheme
+
+  const toggle = document.getElementById("theme-toggle")
+
+  if (toggle) {
+    toggle.dataset.activeTheme = theme
+  }
+
+  document
+    .querySelectorAll("[data-phx-theme]")
+    .forEach((button) => button.setAttribute("aria-pressed", `${button.dataset.phxTheme === theme}`))
+}
+
+const writeThemePreference = (theme) => {
+  try {
+    if (theme === "system") {
+      window.localStorage.removeItem(THEME_STORAGE_KEY)
+    } else {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    }
+  } catch (_error) {
+    // Ignore storage errors (for example privacy mode restrictions).
+  }
+}
+
+const setThemePreference = (theme) => {
+  const normalizedTheme = normalizeThemePreference(theme)
+
+  writeThemePreference(normalizedTheme)
+  applyThemePreference(normalizedTheme)
+}
+
+const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)")
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
@@ -74,7 +141,27 @@ window.addEventListener("phx:config_visibility_changed", event => {
   }
 })
 
-document.documentElement.dataset.theme = "metrics"
+applyThemePreference(readThemePreference())
+
+window.addEventListener("storage", event => {
+  if (event.key === THEME_STORAGE_KEY) {
+    applyThemePreference(normalizeThemePreference(event.newValue))
+  }
+})
+
+window.addEventListener("phx:set-theme", event => {
+  const theme = event.target?.dataset?.phxTheme || event.detail?.theme
+
+  if (theme) {
+    setThemePreference(theme)
+  }
+})
+
+colorSchemeQuery.addEventListener("change", () => {
+  if (readThemePreference() === "system") {
+    applyThemePreference("system")
+  }
+})
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()
