@@ -8,6 +8,7 @@ defmodule YoutrackWeb.PairingLiveTest do
 
     assert has_element?(view, "#pairing-config-form")
     assert has_element?(view, "#fetch-pairing-data")
+    assert has_element?(view, "#reload-pairing-config")
     assert has_element?(view, "#clear-pairing-cache")
     assert has_element?(view, "#toggle-pairing-config")
   end
@@ -42,6 +43,16 @@ defmodule YoutrackWeb.PairingLiveTest do
     |> render_click()
 
     assert has_element?(view, ".metrics-card", "Base query is required")
+  end
+
+  test "reloads env-backed defaults", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/pairing")
+
+    view
+    |> element("#reload-pairing-config")
+    |> render_click()
+
+    assert has_element?(view, "#pairing-config-form")
   end
 
   test "applies async result payload", %{conn: conn} do

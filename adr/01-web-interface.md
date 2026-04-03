@@ -11,6 +11,7 @@
 - Phase 4.1 Async progress: completed (activities progress indicator in Flow Metrics)
 - Phase 4.2 ETS caching: completed (shared issue cache with TTL + refresh bypass buttons)
 - Phase 4 polish: completed (cache source badge + clear-cache controls in all sections)
+- Phase 4.3 Runtime config reload: completed (toolbar "Reload Configuration" action to re-read `.env` and `workstreams.yaml`)
 - Phase 5: completed (multi-stage release Dockerfile + production compose + mounted shared inputs)
 
 Create a standalone Phoenix LiveView app (`youtrack_web/`) that coexists with the existing Livebook notebooks, sharing the `youtrack/` library via path dependency. The app provides a single-page dashboard with sidebar navigation across four sections (Flow Metrics, Gantt, Pairing, Weekly Report), rendering VegaLite specs via a `vega-embed` JS hook, with form-based configuration replacing Kino inputs. Both apps share `workstreams.yaml`, env vars, and `prompts/`. Docker-compose runs both services side by side.

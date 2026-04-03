@@ -119,7 +119,10 @@ defmodule YoutrackWeb.Components.Charts do
   Renders collapse / show-all controls for chart sections.
   Dispatches a custom DOM event that the `.ChartCollapse` hook handles.
   """
-  attr(:target, :string, required: true, doc: "CSS selector for the container holding collapsible details elements")
+  attr(:target, :string,
+    required: true,
+    doc: "CSS selector for the container holding collapsible details elements"
+  )
 
   def collapse_controls(assigns) do
     ~H"""

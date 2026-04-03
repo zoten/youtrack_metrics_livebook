@@ -8,6 +8,7 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
 
     assert has_element?(view, "#weekly-config-form")
     assert has_element?(view, "#build-weekly-report")
+    assert has_element?(view, "#reload-weekly-config")
     assert has_element?(view, "#clear-weekly-cache")
     assert has_element?(view, "#toggle-weekly-config")
   end
@@ -43,6 +44,17 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
     |> render_click()
 
     assert has_element?(view, ".metrics-card", "Week start is required")
+  end
+
+  test "reloads env-backed defaults and prompt files", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/weekly-report")
+
+    view
+    |> element("#reload-weekly-config")
+    |> render_click()
+
+    assert has_element?(view, "#weekly-config-form")
+    assert has_element?(view, "#refresh-llm-models")
   end
 
   test "switches tabs after synthetic report result", %{conn: conn} do

@@ -8,6 +8,7 @@ defmodule YoutrackWeb.GanttLiveTest do
 
     assert has_element?(view, "#gantt-config-form")
     assert has_element?(view, "#fetch-gantt-data")
+    assert has_element?(view, "#reload-gantt-config")
     assert has_element?(view, "#clear-gantt-cache")
     assert has_element?(view, "#toggle-gantt-config")
   end
@@ -52,6 +53,16 @@ defmodule YoutrackWeb.GanttLiveTest do
     |> render_click()
 
     assert has_element?(view, ".metrics-card", "Token is required")
+  end
+
+  test "reloads rules and env-backed defaults", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/gantt")
+
+    view
+    |> element("#reload-gantt-config")
+    |> render_click()
+
+    assert has_element?(view, "#rules-textarea")
   end
 
   test "renders cache source from async payload", %{conn: conn} do

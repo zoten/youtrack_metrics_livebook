@@ -90,6 +90,21 @@ defmodule YoutrackWeb.FlowMetricsLive do
   end
 
   @impl true
+  def handle_event("reload_config", _params, socket) do
+    case Configuration.reload_defaults() do
+      {:ok, defaults} ->
+        {:noreply,
+         socket
+         |> assign(:config, defaults)
+         |> assign(:config_form, to_form(defaults, as: :config))
+         |> put_flash(:info, "Reloaded .env and workstreams.yaml")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Reload failed: #{reason}")}
+    end
+  end
+
+  @impl true
   def handle_info({ref, {:ok, result}}, socket) do
     Process.demonitor(ref, [:flush])
 
@@ -835,8 +850,8 @@ defmodule YoutrackWeb.FlowMetricsLive do
       config={@config}
       active_section="flow_metrics"
       freshness={@fetch_cache_state}
-      topbar_label="Live view"
-      topbar_hint="Switch theme once here; the same preference follows every metrics route."
+      topbar_label="Flow Metrics"
+      topbar_hint="Cycle time, lead time, and throughput across your boards."
     >
       <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
@@ -855,6 +870,9 @@ defmodule YoutrackWeb.FlowMetricsLive do
                 </button>
                 <button id="fetch-flow-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">
                   Refresh (API)
+                </button>
+                <button id="reload-flow-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">
+                  Reload Configuration
                 </button>
                 <button id="clear-flow-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">
                   Clear cache

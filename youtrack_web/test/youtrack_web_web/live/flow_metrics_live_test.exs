@@ -10,6 +10,7 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
     assert has_element?(view, "#theme-dark")
     assert has_element?(view, "#flow-config-form")
     assert has_element?(view, "#fetch-flow-data")
+    assert has_element?(view, "#reload-flow-config")
     assert has_element?(view, "#clear-flow-cache")
     assert has_element?(view, "#toggle-flow-config")
     assert has_element?(view, "#flow-config-form input[name='config[base_url]']")
@@ -58,6 +59,17 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
     |> render_click()
 
     assert has_element?(view, ".metrics-card", "Base query is required")
+  end
+
+  test "reloads env-backed defaults", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/flow-metrics")
+
+    view
+    |> element("#reload-flow-config")
+    |> render_click()
+
+    assert has_element?(view, "#flow-config-form")
+    assert has_element?(view, "#fetch-flow-data")
   end
 
   test "shows and clears activities progress through handle_info", %{conn: conn} do

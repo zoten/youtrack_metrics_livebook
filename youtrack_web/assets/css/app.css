@@ -159,8 +159,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin: 0 auto 1rem;
-  max-width: 80rem;
+  margin: 0 0 1rem;
+  width: 100%;
   padding: 0.85rem 1rem;
   border: 1px solid color-mix(in oklab, var(--metrics-border) 82%, transparent);
   border-radius: 1.75rem;

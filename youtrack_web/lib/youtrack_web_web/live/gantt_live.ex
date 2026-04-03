@@ -127,6 +127,26 @@ defmodule YoutrackWeb.GanttLive do
   end
 
   @impl true
+  def handle_event("reload_config", _params, socket) do
+    case Configuration.reload_defaults() do
+      {:ok, defaults} ->
+        rules = load_rules(defaults["workstreams_path"] || "")
+
+        {:noreply,
+         socket
+         |> assign(:config, defaults)
+         |> assign(:config_form, to_form(defaults, as: :config))
+         |> assign(:rules, rules)
+         |> assign(:rules_text, inspect(rules, pretty: true, limit: :infinity))
+         |> assign(:exported_rules, nil)
+         |> put_flash(:info, "Reloaded .env and workstreams.yaml")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Reload failed: #{reason}")}
+    end
+  end
+
+  @impl true
   def handle_info({ref, {:ok, result}}, socket) do
     Process.demonitor(ref, [:flush])
 
@@ -662,8 +682,8 @@ defmodule YoutrackWeb.GanttLive do
       config={@config}
       active_section="gantt"
       freshness={@fetch_cache_state}
-      topbar_label="Live view"
-      topbar_hint="Theme preference is shared while you classify streams and inspect gantt views."
+      topbar_label="Gantt"
+      topbar_hint="Timeline view of work items and workstream classification."
     >
       <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
@@ -679,6 +699,7 @@ defmodule YoutrackWeb.GanttLive do
                 </button>
                 <button id="fetch-gantt-data" type="button" phx-click="fetch_data" class="metrics-button metrics-button-primary font-semibold">Fetch (cache)</button>
                 <button id="fetch-gantt-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Refresh (API)</button>
+                <button id="reload-gantt-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">Reload Configuration</button>
                 <button id="clear-gantt-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
               </div>
             </div>

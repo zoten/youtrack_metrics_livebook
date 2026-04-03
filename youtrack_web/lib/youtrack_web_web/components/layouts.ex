@@ -58,7 +58,7 @@ defmodule YoutrackWeb.Layouts do
   attr(:active_section, :string, default: nil)
   attr(:freshness, :any, default: nil)
   attr(:topbar_label, :string, default: "Interface")
-  attr(:topbar_hint, :string, default: "Light, dark, or system theme applies across every route.")
+  attr(:topbar_hint, :string, default: "")
 
   slot(:inner_block, required: true)
 

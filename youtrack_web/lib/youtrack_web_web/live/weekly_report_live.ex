@@ -140,6 +140,26 @@ defmodule YoutrackWeb.WeeklyReportLive do
   end
 
   @impl true
+  def handle_event("reload_config", _params, socket) do
+    case Configuration.reload_defaults() do
+      {:ok, defaults} ->
+        defaults = defaults |> with_report_defaults()
+        prompt_files = discover_prompt_files(defaults["prompts_path"])
+        defaults = ensure_prompt_source(defaults, prompt_files)
+
+        {:noreply,
+         socket
+         |> assign(:config, defaults)
+         |> assign(:config_form, to_form(defaults, as: :config))
+         |> assign(:prompt_files, prompt_files)
+         |> put_flash(:info, "Reloaded .env and workstreams.yaml")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Reload failed: #{reason}")}
+    end
+  end
+
+  @impl true
   def handle_event("generate_prompt", _params, socket) do
     case socket.assigns.report_data do
       nil ->
@@ -706,8 +726,8 @@ defmodule YoutrackWeb.WeeklyReportLive do
       config={@config}
       active_section="weekly_report"
       freshness={@fetch_cache_state}
-      topbar_label="Live view"
-      topbar_hint="Theme preference carries through report building, prompt preview, and LLM output."
+      topbar_label="Weekly Report"
+      topbar_hint="Build and preview weekly status reports with LLM assistance."
     >
       <div class="space-y-6 pb-10">
           <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
@@ -721,6 +741,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
                 <button id="toggle-weekly-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
                 <button id="build-weekly-report" type="button" phx-click="build_report" class="metrics-button metrics-button-primary font-semibold">Build (cache)</button>
                 <button id="build-weekly-report-refresh" type="button" phx-click="build_report" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Rebuild (API)</button>
+                <button id="reload-weekly-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">Reload Configuration</button>
                 <button id="clear-weekly-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
               </div>
             </div>

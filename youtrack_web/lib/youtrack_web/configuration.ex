@@ -1,6 +1,8 @@
 defmodule YoutrackWeb.Configuration do
   @moduledoc false
 
+  alias YoutrackWeb.RuntimeConfigReloader
+
   @sections [
     %{
       id: "flow_metrics",
@@ -38,6 +40,13 @@ defmodule YoutrackWeb.Configuration do
 
   def defaults do
     Application.get_env(:youtrack_web, :dashboard_defaults, %{})
+  end
+
+  def reload_defaults do
+    case RuntimeConfigReloader.reload() do
+      {:ok, defaults} -> {:ok, defaults}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def sections do

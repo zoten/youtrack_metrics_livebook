@@ -55,7 +55,7 @@ defmodule YoutrackWeb.DashboardLive do
       current_scope={@current_scope}
       config={@config}
       topbar_label="Dashboard"
-      topbar_hint="Your team metrics. From humans to humans (through genies)"
+      topbar_hint="Overview of your team's key metrics at a glance."
     >
       <div class="mx-auto max-w-7xl space-y-6">
             <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
