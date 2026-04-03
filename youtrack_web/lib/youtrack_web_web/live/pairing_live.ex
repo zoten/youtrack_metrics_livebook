@@ -557,8 +557,11 @@ defmodule YoutrackWeb.PairingLive do
           </div>
 
           <%= if map_size(@chart_specs) > 0 do %>
-            <div class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
-              <.chart_toc title="Pairing Charts" items={chart_nav_items()} />
+            <div id="pairing-charts-area" class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
+              <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+                <.collapse_controls target="#pairing-charts-area" />
+                <.chart_toc title="Pairing Charts" items={chart_nav_items()} />
+              </div>
 
               <div class="grid gap-6 md:grid-cols-2">
                 <.chart_card id="pairing-matrix-chart" title="Pair Matrix" spec={@chart_specs.pair_matrix} wrapper_class="md:col-span-2" class="h-[34rem]" />

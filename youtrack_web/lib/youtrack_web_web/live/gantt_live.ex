@@ -741,10 +741,8 @@ defmodule YoutrackWeb.GanttLive do
           </div>
 
           <%= if @unclassified_stats != [] do %>
-            <section class="metrics-card rounded-[2rem] p-6">
-              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Classifier</p>
-              <h3 class="metrics-title mt-2 text-2xl font-semibold">Map unclassified slugs</h3>
-              <div class="mt-4 space-y-3">
+            <.collapsible_section id="gantt-classifier" title="Map unclassified slugs" subtitle="Classifier">
+              <div class="space-y-3">
                 <%= for row <- Enum.take(@unclassified_stats, 12) do %>
                   <.form for={%{}} as={:classify} phx-submit="classify_slug" class="metrics-subtle-panel grid grid-cols-1 gap-2 rounded-2xl p-3 md:grid-cols-[minmax(0,1fr)_12rem_8rem] md:items-center">
                     <input type="hidden" name="slug" value={row.slug} />
@@ -761,12 +759,15 @@ defmodule YoutrackWeb.GanttLive do
                   </.form>
                 <% end %>
               </div>
-            </section>
+            </.collapsible_section>
           <% end %>
 
           <%= if map_size(@chart_specs) > 0 do %>
-            <div class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
-              <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
+            <div id="gantt-charts-area" class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
+              <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+                <.collapse_controls target="#gantt-charts-area" />
+                <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
+              </div>
 
               <div class="grid gap-6 md:grid-cols-2">
                 <.chart_card id="gantt-main-chart" title="Team Gantt" spec={@chart_specs.gantt} wrapper_class="md:col-span-2" class="min-h-[24rem]" />

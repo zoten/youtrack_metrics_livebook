@@ -77,15 +77,18 @@ defmodule YoutrackWeb.Components.Charts do
 
   def chart_card(assigns) do
     ~H"""
-    <div class={["metrics-card rounded-4xl p-4", @wrapper_class]}>
-      <div class="mb-4">
-        <h3 class="metrics-title text-lg font-semibold">{@title}</h3>
+    <details id={"#{@id}-card"} class={["metrics-card rounded-4xl p-4 group/card", @wrapper_class]} open phx-hook=".ChartCollapse">
+      <summary class="mb-4 flex cursor-pointer select-none list-none items-center justify-between gap-2">
+        <div>
+          <h3 class="metrics-title text-lg font-semibold">{@title}</h3>
           <%= if @description do %>
             <p class="metrics-copy mt-1 text-sm">{@description}</p>
           <% end %>
-      </div>
+        </div>
+        <span class="metrics-copy text-xs transition-transform duration-200 group-open/card:rotate-180">▼</span>
+      </summary>
       <.chart id={@id} spec={@spec} class={"w-full #{@class}"} />
-    </div>
+    </details>
     """
   end
 
@@ -94,7 +97,7 @@ defmodule YoutrackWeb.Components.Charts do
 
   def chart_toc(assigns) do
     ~H"""
-    <details class="metrics-card rounded-[2rem] p-4 lg:sticky lg:top-6" open>
+    <details class="metrics-card rounded-[2rem] p-4" open>
       <summary class="metrics-eyebrow cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.22em]">
         {@title}
       </summary>
@@ -108,6 +111,98 @@ defmodule YoutrackWeb.Components.Charts do
           </a>
         <% end %>
       </nav>
+    </details>
+    """
+  end
+
+  @doc """
+  Renders collapse / show-all controls for chart sections.
+  Dispatches a custom DOM event that the `.ChartCollapse` hook handles.
+  """
+  attr(:target, :string, required: true, doc: "CSS selector for the container holding collapsible details elements")
+
+  def collapse_controls(assigns) do
+    ~H"""
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        class="metrics-button metrics-button-ghost px-3 py-1.5 text-xs"
+        onclick={"document.querySelectorAll('#{@target} details[phx-hook]').forEach(d => { d.removeAttribute('open'); d.dispatchEvent(new Event('toggle')) })"}
+      >
+        Collapse all
+      </button>
+      <button
+        type="button"
+        class="metrics-button metrics-button-ghost px-3 py-1.5 text-xs"
+        onclick={"document.querySelectorAll('#{@target} details[phx-hook]').forEach(d => { d.setAttribute('open',''); d.dispatchEvent(new Event('toggle')) })"}
+      >
+        Show all
+      </button>
+    </div>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".ChartCollapse">
+      const STORAGE_KEY = "youtrack.collapsed_cards"
+
+      function readCollapsed() {
+        try {
+          return JSON.parse(window.localStorage.getItem(STORAGE_KEY)) || []
+        } catch (_) { return [] }
+      }
+
+      function writeCollapsed(list) {
+        try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(list)) }
+        catch (_) {}
+      }
+
+      export default {
+        mounted() {
+          const id = this.el.id
+          const collapsed = readCollapsed()
+          if (collapsed.includes(id)) {
+            this.el.removeAttribute("open")
+          }
+
+          this.el.addEventListener("toggle", () => {
+            const list = readCollapsed()
+            const isOpen = this.el.open
+            if (isOpen) {
+              writeCollapsed(list.filter(x => x !== id))
+            } else {
+              if (!list.includes(id)) {
+                writeCollapsed([...list, id])
+              }
+            }
+          })
+        }
+      }
+    </script>
+    """
+  end
+
+  @doc """
+  A generic collapsible section wrapper using `<details>`.
+  Persists open/close state via the same `.ChartCollapse` hook.
+  """
+  attr(:id, :string, required: true)
+  attr(:title, :string, required: true)
+  attr(:subtitle, :string, default: nil)
+  attr(:class, :string, default: nil)
+  slot(:inner_block, required: true)
+
+  def collapsible_section(assigns) do
+    ~H"""
+    <details id={@id} class={["metrics-card rounded-[2rem] p-6 group/card", @class]} open phx-hook=".ChartCollapse">
+      <summary class="flex cursor-pointer select-none list-none items-center justify-between gap-2">
+        <div>
+          <%= if @subtitle do %>
+            <p class="metrics-copy text-xs uppercase tracking-[0.24em]">{@subtitle}</p>
+          <% end %>
+          <h3 class="metrics-title mt-2 text-2xl font-semibold">{@title}</h3>
+        </div>
+        <span class="metrics-copy text-xs transition-transform duration-200 group-open/card:rotate-180">▼</span>
+      </summary>
+      <div class="mt-4">
+        {render_slot(@inner_block)}
+      </div>
     </details>
     """
   end

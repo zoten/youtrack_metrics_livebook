@@ -918,8 +918,11 @@ defmodule YoutrackWeb.FlowMetricsLive do
           </div>
 
           <%= if map_size(@chart_specs) > 0 do %>
-            <div class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
-              <.chart_toc title="Flow Charts" items={chart_nav_items(@chart_specs)} />
+            <div id="flow-charts-area" class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
+              <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+                <.collapse_controls target="#flow-charts-area" />
+                <.chart_toc title="Flow Charts" items={chart_nav_items(@chart_specs)} />
+              </div>
 
               <div class="grid gap-6 md:grid-cols-2">
                 <.chart_card id="chart-throughput" title="Throughput" description="Completed items per week." spec={@chart_specs.throughput} class="h-96" />
