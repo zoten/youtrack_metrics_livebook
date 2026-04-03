@@ -489,13 +489,24 @@ defmodule YoutrackWeb.GanttLive do
         }
       end)
 
+    stream_count =
+      values |> Enum.map(& &1.stream) |> Enum.uniq() |> length() |> max(3)
+
+    row_height = stream_count * 18 + 40
+
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "data" => %{"values" => values},
-      "facet" => %{"field" => "person_name", "type" => "nominal", "header" => %{"title" => nil}},
+      "facet" => %{
+        "row" => %{
+          "field" => "person_name",
+          "type" => "nominal",
+          "header" => %{"title" => nil, "labelFontSize" => 13, "labelPadding" => 8}
+        }
+      },
       "spec" => %{
-        "width" => 900,
-        "height" => 70,
+        "width" => "container",
+        "height" => row_height,
         "mark" => %{"type" => "bar", "tooltip" => true},
         "encoding" => %{
           "x" => %{"field" => "start", "type" => "temporal", "title" => "Time"},
@@ -758,7 +769,7 @@ defmodule YoutrackWeb.GanttLive do
               <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
 
               <div class="grid gap-6 md:grid-cols-2">
-                <.chart_card id="gantt-main-chart" title="Team Gantt" spec={@chart_specs.gantt} wrapper_class="md:col-span-2" class="h-[32rem]" />
+                <.chart_card id="gantt-main-chart" title="Team Gantt" spec={@chart_specs.gantt} wrapper_class="md:col-span-2" class="min-h-[24rem]" />
                 <.chart_card id="gantt-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
                 <.chart_card id="gantt-unplanned-person-chart" title="Unplanned by Person" spec={@chart_specs.unplanned_person} class="h-96" />
                 <.chart_card id="gantt-unplanned-stream-chart" title="Unplanned by Workstream" spec={@chart_specs.unplanned_stream} class="h-96" />

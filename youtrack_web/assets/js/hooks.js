@@ -42,9 +42,15 @@ export default {
 
         try {
             const specObj = JSON.parse(spec)
-            // Force responsive width so charts fill their container instead of using
-            // the hardcoded pixel widths from the Elixir spec generators.
-            specObj.width = "container"
+            // Force responsive width so charts fill their container.
+            // For faceted specs (with nested "spec"), set width inside the nested spec.
+            if (specObj.spec && (specObj.facet || specObj.repeat)) {
+                if (specObj.spec.width !== "container") {
+                    specObj.spec.width = "container"
+                }
+            } else {
+                specObj.width = "container"
+            }
             if (specObj.autosize == null) {
                 specObj.autosize = { type: "fit", contains: "padding" }
             }

@@ -28,6 +28,7 @@ defmodule YoutrackWeb.Components.Charts do
   attr(:id, :string, required: true)
   attr(:spec, :map, required: true)
   attr(:class, :string, default: "h-96 w-full")
+
   def chart(assigns) do
     assigns = assign(assigns, :spec_json, Jason.encode!(assigns.spec))
 
