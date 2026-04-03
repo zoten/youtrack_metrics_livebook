@@ -22,14 +22,19 @@ defmodule Youtrack.Workstreams do
       |> Enum.map(fn {k, v} -> {String.upcase(k), v} end)
       |> Enum.into(%{})
 
+    normalized_type_map =
+      Map.get(rules, :type_to_stream, %{})
+      |> Enum.map(fn {k, v} -> {normalize_slug(k), v} end)
+      |> Enum.into(%{})
+
     substream_map = Map.get(rules, :substream_of, %{})
 
-    %{
-      rules
-      | slug_prefix_to_stream: normalized_slug_map,
-        tag_to_stream: normalized_tag_map
-    }
-    |> Map.put(:substream_of, substream_map)
+    Map.merge(rules, %{
+      slug_prefix_to_stream: normalized_slug_map,
+      tag_to_stream: normalized_tag_map,
+      type_to_stream: normalized_type_map,
+      substream_of: substream_map
+    })
   end
 
   @doc """
@@ -115,6 +120,7 @@ defmodule Youtrack.Workstreams do
       iex> rules = %{
       ...>   slug_prefix_to_stream: %{"BACKEND" => ["BACKEND"]},
       ...>   tag_to_stream: %{},
+      ...>   type_to_stream: %{},
       ...>   substream_of: %{},
       ...>   fallback: ["(unclassified)"]
       ...> }
@@ -132,6 +138,12 @@ defmodule Youtrack.Workstreams do
       issue_tags(issue)
       |> Enum.map(&String.upcase/1)
 
+    issue_type =
+      case issue["type"] do
+        %{"name" => name} when is_binary(name) -> name
+        _ -> nil
+      end
+
     from_slug =
       case slug do
         nil -> []
@@ -142,7 +154,13 @@ defmodule Youtrack.Workstreams do
       tags
       |> Enum.flat_map(fn t -> Map.get(rules.tag_to_stream, t, []) end)
 
-    base_streams = (from_slug ++ from_tags) |> Enum.uniq()
+    from_type =
+      case issue_type do
+        nil -> []
+        t -> Map.get(rules.type_to_stream, t, [])
+      end
+
+    base_streams = (from_slug ++ from_tags ++ from_type) |> Enum.uniq()
 
     streams =
       if include_substreams do

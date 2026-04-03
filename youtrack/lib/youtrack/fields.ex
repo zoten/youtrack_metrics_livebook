@@ -86,4 +86,19 @@ defmodule Youtrack.Fields do
     |> Enum.map(& &1["name"])
     |> Enum.reject(&is_nil/1)
   end
+
+  @doc """
+  Extracts the type name from an issue.
+
+  ## Examples
+
+      iex> Youtrack.Fields.type_name(issue)
+      "Feature"
+  """
+  def type_name(issue) do
+    case issue["type"] do
+      %{"name" => name} when is_binary(name) -> name
+      _ -> nil
+    end
+  end
 end

@@ -1,8 +1,9 @@
 # Workstream Mapping Configuration
-# Format: workstream_name -> { slugs: [...], tags: [...], substream_of: [...] }
+# Format: workstream_name -> { slugs: [...], tags: [...], types: [...], substream_of: [...] }
 #
 # - slugs: Issue summary prefixes that map to this workstream (e.g., "[BACKEND] Fix bug")
 # - tags: YouTrack tags that map to this workstream (e.g., "team:backend")
+# - types: Issue types that map to this workstream (e.g., "Feature", "Bug")
 # - substream_of: Parent workstreams. When "Include substreams" is enabled (default),
 #   issues in this workstream will also appear in the parent workstreams.
 #   Example: API with substream_of: [BACKEND] means API issues count toward BACKEND too.
@@ -24,6 +25,11 @@ FRONTEND:
     - FE
   tags:
     - team:frontend
+
+# Example: A workstream matched by issue type
+BUGS:
+  types:
+    - Bug
 
 # Example: A substream that rolls up to a parent
 API:

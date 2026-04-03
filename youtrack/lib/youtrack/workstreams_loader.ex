@@ -9,6 +9,9 @@ defmodule Youtrack.WorkstreamsLoader do
           - BACKEND
         tags:
           - team:backend
+        types:
+          - Task
+          - Bug
       API:
         slugs:
           - API
@@ -22,6 +25,7 @@ defmodule Youtrack.WorkstreamsLoader do
 
     * `:slug_prefix_to_stream` - Maps normalized slugs to workstream names
     * `:tag_to_stream` - Maps tags to workstream names
+    * `:type_to_stream` - Maps issue types to workstream names
     * `:substream_of` - Maps workstreams to their parent workstreams
     * `:fallback` - Default workstream for unclassified issues
   """
@@ -50,19 +54,20 @@ defmodule Youtrack.WorkstreamsLoader do
 
   ## Examples
 
-      iex> yaml = %{"BACKEND" => %{"slugs" => ["BACKEND"], "tags" => ["team:backend"]}}
+      iex> yaml = %{"BACKEND" => %{"slugs" => ["BACKEND"], "tags" => ["team:backend"], "types" => ["Task"]}}
       iex> Youtrack.WorkstreamsLoader.transform_to_internal(yaml)
       %{
         slug_prefix_to_stream: %{"BACKEND" => ["BACKEND"]},
         tag_to_stream: %{"team:backend" => ["BACKEND"]},
+        type_to_stream: %{"Task" => ["BACKEND"]},
         substream_of: %{},
         fallback: ["(unclassified)"]
       }
   """
   def transform_to_internal(yaml) when is_map(yaml) do
-    {slug_map, tag_map, substream_map} =
-      Enum.reduce(yaml, {%{}, %{}, %{}}, fn {stream_name, config},
-                                            {slugs_acc, tags_acc, sub_acc} ->
+    {slug_map, tag_map, type_map, substream_map} =
+      Enum.reduce(yaml, {%{}, %{}, %{}, %{}}, fn {stream_name, config},
+                                                 {slugs_acc, tags_acc, types_acc, sub_acc} ->
         config = config || %{}
         stream_list = [stream_name]
 
@@ -78,6 +83,12 @@ defmodule Youtrack.WorkstreamsLoader do
             Map.put(acc, tag, stream_list)
           end)
 
+        types_acc =
+          (config["types"] || [])
+          |> Enum.reduce(types_acc, fn type, acc ->
+            Map.put(acc, type, stream_list)
+          end)
+
         sub_acc =
           case config["substream_of"] do
             nil -> sub_acc
@@ -85,12 +96,13 @@ defmodule Youtrack.WorkstreamsLoader do
             parents when is_list(parents) -> Map.put(sub_acc, stream_name, parents)
           end
 
-        {slugs_acc, tags_acc, sub_acc}
+        {slugs_acc, tags_acc, types_acc, sub_acc}
       end)
 
     %{
       slug_prefix_to_stream: slug_map,
       tag_to_stream: tag_map,
+      type_to_stream: type_map,
       substream_of: substream_map,
       fallback: ["(unclassified)"]
     }
@@ -103,6 +115,7 @@ defmodule Youtrack.WorkstreamsLoader do
     %{
       slug_prefix_to_stream: %{},
       tag_to_stream: %{},
+      type_to_stream: %{},
       substream_of: %{},
       fallback: ["(unclassified)"]
     }

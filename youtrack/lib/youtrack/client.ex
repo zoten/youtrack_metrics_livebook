@@ -27,6 +27,7 @@ defmodule Youtrack.Client do
     "updated",
     "resolved",
     "project(shortName)",
+    "type(name)",
     "tags(name)",
     "customFields(name,value(name,login))"
   ]
