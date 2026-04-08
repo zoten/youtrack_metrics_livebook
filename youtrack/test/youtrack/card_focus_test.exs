@@ -102,4 +102,67 @@ defmodule Youtrack.CardFocusTest do
     assert hd(result.active_segments).label in ["Active", "Inactive"]
     assert hd(result.timeline_events).timestamp == 9_000
   end
+
+  test "detects hold and tag events when activities use category.id without field.name" do
+    # Regression: YouTrack TagsCategory activities may omit the field map entirely
+    issue = %{
+      "idReadable" => "T-2",
+      "id" => "3-2",
+      "summary" => "Issue with category-only tag activities",
+      "description" => nil,
+      "created" => 1_000,
+      "updated" => 9_000,
+      "resolved" => 9_000,
+      "project" => %{"shortName" => "T"},
+      "type" => %{"name" => "Task"},
+      "tags" => [],
+      "comments" => [],
+      "customFields" => [
+        %{"name" => "State", "value" => %{"name" => "In Progress"}}
+      ]
+    }
+
+    activities = [
+      %{
+        "field" => %{"name" => "State"},
+        "added" => [%{"name" => "In Progress"}],
+        "removed" => [%{"name" => "To Do"}],
+        "timestamp" => 2_000,
+        "author" => %{"name" => "Alice"}
+      },
+      # Tag activity with category.id but no field key (simulates null-field YouTrack response)
+      %{
+        "category" => %{"id" => "TagsCategory"},
+        "added" => [%{"name" => "on hold"}],
+        "removed" => [],
+        "timestamp" => 4_000,
+        "author" => %{"name" => "Alice"}
+      },
+      %{
+        "category" => %{"id" => "TagsCategory"},
+        "added" => [],
+        "removed" => [%{"name" => "on hold"}],
+        "timestamp" => 6_000,
+        "author" => %{"name" => "Alice"}
+      }
+    ]
+
+    result =
+      CardFocus.build(
+        issue,
+        activities,
+        state_field: "State",
+        assignees_field: "Assignee",
+        inactive_names: ["To Do"],
+        done_names: ["Done"],
+        hold_tags: ["on hold"]
+      )
+
+    # Cycle: 2_000 to 9_000 = 7_000; hold 4_000–6_000 = 2_000 paused
+    assert result.metrics.cycle_time_ms == 7_000
+    assert result.metrics.net_active_time_ms == 5_000
+    assert result.metrics.inactive_time_ms == 2_000
+    # Two tag events should be surfaced (add and remove)
+    assert length(result.tag_events) == 2
+  end
 end

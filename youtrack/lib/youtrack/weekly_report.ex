@@ -324,7 +324,8 @@ defmodule Youtrack.WeeklyReport do
     tag_changes_in_window =
       activities
       |> Enum.filter(fn a ->
-        get_in(a, ["field", "name"]) == "tags" and
+          (get_in(a, ["field", "name"]) == "tags" or
+            get_in(a, ["category", "id"]) == "TagsCategory") and
           in_window?(a["timestamp"], window_start_ms, window_end_ms)
       end)
       |> Enum.sort_by(& &1["timestamp"])
@@ -654,7 +655,10 @@ defmodule Youtrack.WeeklyReport do
 
     tag_events =
       activities
-      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == "tags" end)
+      |> Enum.filter(fn a ->
+        get_in(a, ["field", "name"]) == "tags" or
+          get_in(a, ["category", "id"]) == "TagsCategory"
+      end)
       |> Enum.filter(&is_integer(&1["timestamp"]))
       |> Enum.sort_by(& &1["timestamp"])
 

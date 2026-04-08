@@ -194,7 +194,10 @@ defmodule Youtrack.CardFocus do
 
   defp build_tag_events(activities) do
     activities
-    |> Enum.filter(fn activity -> get_in(activity, ["field", "name"]) == "tags" end)
+    |> Enum.filter(fn activity ->
+      get_in(activity, ["field", "name"]) == "tags" or
+        get_in(activity, ["category", "id"]) == "TagsCategory"
+    end)
     |> Enum.filter(&is_integer(&1["timestamp"]))
     |> Enum.sort_by(& &1["timestamp"], :desc)
     |> Enum.map(fn activity ->

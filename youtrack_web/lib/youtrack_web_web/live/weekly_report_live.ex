@@ -35,8 +35,8 @@ defmodule YoutrackWeb.WeeklyReportLive do
     "author(name,login)",
     "field(name)",
     "targetMember",
-    "added",
-    "removed",
+    "added(name)",
+    "removed(name)",
     "markup"
   ]
 

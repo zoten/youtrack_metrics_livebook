@@ -622,7 +622,10 @@ defmodule YoutrackWeb.FlowMetricsLive do
 
     tag_events =
       activities
-      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == "tags" end)
+      |> Enum.filter(fn a ->
+        get_in(a, ["field", "name"]) == "tags" or
+          get_in(a, ["category", "id"]) == "TagsCategory"
+      end)
       |> Enum.filter(&is_integer(&1["timestamp"]))
       |> Enum.sort_by(& &1["timestamp"])
 

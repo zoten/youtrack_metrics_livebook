@@ -918,4 +918,121 @@ defmodule Youtrack.WeeklyReportTest do
       assert result == 3_000_000
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Tag detection via category.id (regression: field may be null in real API)
+  # ---------------------------------------------------------------------------
+
+  describe "hold detection via category.id when field is absent" do
+    @start_ms 1_000_000
+    @end_ms 5_000_000
+
+    test "net_active_time/4 detects hold when activity has only category.id, no field" do
+      # Simulates YouTrack returning TagsCategory activities with field: null
+      activities = [
+        %{
+          "category" => %{"id" => "TagsCategory"},
+          "added" => [%{"name" => "on hold"}],
+          "removed" => [],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "category" => %{"id" => "TagsCategory"},
+          "added" => [],
+          "removed" => [%{"name" => "on hold"}],
+          "timestamp" => 3_000_000
+        }
+      ]
+
+      # Hold period 2_000_000–3_000_000 = 1_000_000 ms must be subtracted
+      result = WeeklyReport.net_active_time(@start_ms, @end_ms, activities, ["on hold"])
+      assert result == @end_ms - @start_ms - 1_000_000
+    end
+
+    test "net_active_time/7 subtracts hold when activity uses category.id only" do
+      activities = [
+        %{
+          "category" => %{"id" => "TagsCategory"},
+          "added" => [%{"name" => "on hold"}],
+          "removed" => [],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "category" => %{"id" => "TagsCategory"},
+          "added" => [],
+          "removed" => [%{"name" => "on hold"}],
+          "timestamp" => 4_000_000
+        }
+      ]
+
+      result =
+        WeeklyReport.net_active_time(
+          @start_ms,
+          @end_ms,
+          activities,
+          ["on hold"],
+          "State",
+          ["To Do"],
+          ["Done"]
+        )
+
+      # Active the entire window (no state events), hold 2_000_000–4_000_000 = 2_000_000 ms
+      assert result == @end_ms - @start_ms - 2_000_000
+    end
+
+    test "build_issue_summary detects hold-tag change in window via category.id" do
+      activities = [
+        %{
+          "category" => %{"id" => "TagsCategory"},
+          "added" => [%{"name" => "on hold"}],
+          "removed" => [],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "category" => %{"id" => "TagsCategory"},
+          "added" => [],
+          "removed" => [%{"name" => "on hold"}],
+          "timestamp" => 3_000_000
+        }
+      ]
+
+      issue =
+        %{
+          "idReadable" => "T-1",
+          "id" => "3-1",
+          "summary" => "Sample issue",
+          "description" => nil,
+          "created" => @start_ms,
+          "updated" => 3_000_000,
+          "resolved" => @end_ms,
+          "project" => %{"shortName" => "T"},
+          "tags" => [],
+          "customFields" => [
+            %{"name" => "State", "value" => %{"name" => "In Progress"}}
+          ],
+          "comments" => []
+        }
+
+      summary =
+        WeeklyReport.build_issue_summary(
+          issue,
+          activities,
+          hold_tags: ["on hold"],
+          window_start_ms: @start_ms,
+          window_end_ms: @end_ms
+        )
+
+      # Hold 2_000_000–3_000_000 = 1_000_000 ms must reduce net_active_time
+      assert summary.cycle_time_ms == @end_ms - @start_ms
+      assert summary.net_active_time_ms == @end_ms - @start_ms - 1_000_000
+      # Tag change in window should appear even when detected via category.id
+      assert length(summary.hold_tag_changes_in_window) == 2
+    end
+
+    test "net_active_time equals cycle_time when no hold activities are present" do
+      # Regression baseline: without any hold activities, result must equal cycle time
+      result = WeeklyReport.net_active_time(@start_ms, @end_ms, [], ["on hold"])
+      assert result == @end_ms - @start_ms
+    end
+  end
 end
