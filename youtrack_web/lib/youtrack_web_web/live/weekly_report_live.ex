@@ -207,6 +207,51 @@ defmodule YoutrackWeb.WeeklyReportLive do
   end
 
   @impl true
+  def handle_event("download-weekly-json", _params, socket) do
+    case socket.assigns.report_data do
+      nil ->
+        {:noreply, assign(socket, :fetch_error, "Build report first")}
+
+      report_data ->
+        {:noreply,
+         push_event(socket, "download_json", %{
+           content: report_data.weekly_json,
+           filename: "weekly-report.json"
+         })}
+    end
+  end
+
+  @impl true
+  def handle_event("download-daily-json", _params, socket) do
+    case socket.assigns.report_data do
+      nil ->
+        {:noreply, assign(socket, :fetch_error, "Build report first")}
+
+      report_data ->
+        {:noreply,
+         push_event(socket, "download_json", %{
+           content: report_data.daily_json,
+           filename: "daily-report.json"
+         })}
+    end
+  end
+
+  @impl true
+  def handle_event("download-full-json", _params, socket) do
+    case socket.assigns.report_data do
+      nil ->
+        {:noreply, assign(socket, :fetch_error, "Build report first")}
+
+      report_data ->
+        {:noreply,
+         push_event(socket, "download_json", %{
+           content: report_data.report_json,
+           filename: "full-report.json"
+         })}
+    end
+  end
+
+  @impl true
   def handle_info({ref, {:ok, {:report, report_data}}}, socket) do
     Process.demonitor(ref, [:flush])
 
@@ -1077,34 +1122,54 @@ defmodule YoutrackWeb.WeeklyReportLive do
           <% end %>
 
           <%= if @active_tab == "copy" do %>
-            <section class="metrics-card rounded-4xl p-6 space-y-4">
+            <section id="download-section" phx-hook=".DownloadJson" class="metrics-card rounded-4xl p-6 space-y-4">
               <h3 class="metrics-title text-xl font-semibold">Copy / Download</h3>
-              <a
+              <button
                 id="download-weekly-json"
-                href={data_uri(@report_data.weekly_json)}
-                download="weekly-report.json"
+                type="button"
+                phx-click="download-weekly-json"
                 class="metrics-button metrics-button-ghost text-sm"
               >
                 Download weekly JSON
-              </a>
-              <a
+              </button>
+              <button
                 id="download-daily-json"
-                href={data_uri(@report_data.daily_json)}
-                download="daily-report.json"
+                type="button"
+                phx-click="download-daily-json"
                 class="metrics-button metrics-button-ghost text-sm"
               >
                 Download daily JSON
-              </a>
-              <a
+              </button>
+              <button
                 id="download-full-json"
-                href={data_uri(@report_data.report_json)}
-                download="full-report.json"
+                type="button"
+                phx-click="download-full-json"
                 class="metrics-button metrics-button-ghost text-sm"
               >
                 Download full JSON
-              </a>
+              </button>
             </section>
           <% end %>
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".DownloadJson">
+            export default {
+              mounted() {
+                this.handleEvent('download_json', (data) => {
+                  this.downloadJson(data.content, data.filename);
+                });
+              },
+              downloadJson(content, filename) {
+                const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+              }
+            }
+          </script>
 
           <%= if @active_tab == "llm" do %>
             <section class="metrics-card rounded-4xl p-6 space-y-4">
@@ -1217,10 +1282,6 @@ defmodule YoutrackWeb.WeeklyReportLive do
     else
       String.slice(text, 0, max_chars) <> "\n\n... (truncated)"
     end
-  end
-
-  defp data_uri(content) do
-    "data:text/plain;charset=utf-8," <> URI.encode(content)
   end
 
   defp payload_issues(report_data, payload_key) do
