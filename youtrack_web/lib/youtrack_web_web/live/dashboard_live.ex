@@ -215,5 +215,7 @@ defmodule YoutrackWeb.DashboardLive do
   defp section_path("gantt"), do: ~p"/gantt"
   defp section_path("pairing"), do: ~p"/pairing"
   defp section_path("weekly_report"), do: ~p"/weekly-report"
+  defp section_path("card_focus"), do: ~p"/card"
+  defp section_path("workstream_config"), do: ~p"/workstreams"
   defp section_path(_), do: ~p"/flow-metrics"
 end

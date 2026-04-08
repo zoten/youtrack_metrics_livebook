@@ -37,6 +37,14 @@ defmodule YoutrackWeb.Configuration do
       highlights: ["JSON payload", "Prompt templates", "Copy/download", "LLM response"]
     },
     %{
+      id: "card_focus",
+      label: "Card Focus",
+      stage: "In progress",
+      visuals: "Issue deep-dive",
+      description: "Inspect one card with a dedicated timeline, history events, and delivery signals.",
+      highlights: ["State timeline", "Cycle vs net active", "Comments", "Tags"]
+    },
+    %{
       id: "workstream_config",
       label: "Workstream Config",
       stage: "Ready",

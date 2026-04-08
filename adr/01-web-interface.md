@@ -23,8 +23,13 @@
   - Per-page duplicated shared forms removed from section pages
   - Weekly report keeps report+LLM fields local to the page form (not shared globally)
   - LiveView tests updated for all affected pages
+- Phase 3.5 Card Focus: in progress
+  - New `/card` and `/card/:issue_id` LiveView routes added for issue-level deep dives
+  - Card page reuses shared config/sidebar patterns instead of adding a page-local fetch form
+  - Initial card analytics pipeline implemented in `Youtrack.CardFocus`, reusing `Youtrack.WeeklyReport` and `Youtrack.Rework`
+  - Current page renders issue snapshot, cycle/net active timing, time-in-state, and state/assignee/tag/comment/description histories
 
-Create a standalone Phoenix LiveView app (`youtrack_web/`) that coexists with the existing Livebook notebooks, sharing the `youtrack/` library via path dependency. The app provides a single-page dashboard with sidebar navigation across four sections (Flow Metrics, Gantt, Pairing, Weekly Report), rendering VegaLite specs via a `vega-embed` JS hook, with form-based configuration replacing Kino inputs. Both apps share `workstreams.yaml`, env vars, and `prompts/`. Docker-compose runs both services side by side.
+Create a standalone Phoenix LiveView app (`youtrack_web/`) that coexists with the existing Livebook notebooks, sharing the `youtrack/` library via path dependency. The app provides a single-page dashboard with sidebar navigation across analytical sections (Flow Metrics, Gantt, Pairing, Weekly Report, Card Focus, Workstream Config), rendering VegaLite specs via a `vega-embed` JS hook where charts are needed, with form-based configuration replacing Kino inputs. Both apps share `workstreams.yaml`, env vars, and `prompts/`. Docker-compose runs both services side by side.
 
 ---
 
@@ -167,6 +172,7 @@ youtrack_metrics_livebook/
 - `youtrack/lib/youtrack/rotation.ex` — rotation/tenure analysis
 - `youtrack/lib/youtrack/rework.ex` — `count_by_issue/3`
 - `youtrack/lib/youtrack/weekly_report.ex` — `build_issue_summary/3`
+- `youtrack/lib/youtrack/card_focus.ex` — card timeline normalization, event buckets, and per-card metrics
 
 **Reference (copy VegaLite spec logic from):**
 - `flow_metrics.livemd` — 21 chart specs, data transformation logic
@@ -187,8 +193,9 @@ youtrack_metrics_livebook/
 4. Each section: configure credentials → "Fetch Data" → charts render matching Livebook output
 5. Gantt classifier: map unclassified slug → charts re-render
 6. Weekly Report: generate payload → send to LLM → response streams
-7. `docker compose up` → both Livebook (:8080) and Phoenix (:4000) accessible
-8. Open Livebooks at :8080, run top-to-bottom — still work unchanged
+7. Card Focus: open `/card/ABC-123` or search an issue key, then verify timing cards and history panels render for a known rich issue
+8. `docker compose up` → both Livebook (:8080) and Phoenix (:4000) accessible
+9. Open Livebooks at :8080, run top-to-bottom — still work unchanged
 
 ### Decisions
 

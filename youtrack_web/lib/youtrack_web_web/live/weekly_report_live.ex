@@ -1015,6 +1015,38 @@ defmodule YoutrackWeb.WeeklyReportLive do
                   </tbody>
                 </table>
               </div>
+
+              <div class="mt-6 grid gap-4 md:grid-cols-2">
+                <div class="metrics-subtle-panel rounded-2xl p-4">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Daily issues</p>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <%= for issue <- payload_issues(@report_data, :daily_payload) do %>
+                      <.link
+                        id={"weekly-daily-card-#{issue.id}"}
+                        navigate={~p"/card/#{issue.id}"}
+                        class="metrics-pill metrics-pill-accent px-2 py-1 text-[11px]"
+                      >
+                        {issue.id}
+                      </.link>
+                    <% end %>
+                  </div>
+                </div>
+
+                <div class="metrics-subtle-panel rounded-2xl p-4">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Weekly issues</p>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <%= for issue <- payload_issues(@report_data, :weekly_payload) do %>
+                      <.link
+                        id={"weekly-weekly-card-#{issue.id}"}
+                        navigate={~p"/card/#{issue.id}"}
+                        class="metrics-pill metrics-pill-accent px-2 py-1 text-[11px]"
+                      >
+                        {issue.id}
+                      </.link>
+                    <% end %>
+                  </div>
+                </div>
+              </div>
             </section>
           <% end %>
 
@@ -1189,6 +1221,15 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
   defp data_uri(content) do
     "data:text/plain;charset=utf-8," <> URI.encode(content)
+  end
+
+  defp payload_issues(report_data, payload_key) do
+    report_data
+    |> Map.get(payload_key, %{})
+    |> Map.get(:issues, [])
+    |> Enum.map(fn summary -> %{id: summary.id} end)
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.id)
   end
 
   defp to_start_ms(date) do

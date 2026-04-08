@@ -727,6 +727,47 @@ defmodule YoutrackWeb.GanttLive do
           />
         </div>
 
+        <%= if @unclassified_stats != [] do %>
+          <section id="gantt-unclassified-examples" class="metrics-card rounded-[2rem] p-6">
+            <h3 class="metrics-title text-lg font-semibold">Unclassified examples</h3>
+            <p class="metrics-copy mt-2 text-sm leading-6">
+              Open these cards directly to classify patterns and tags faster.
+            </p>
+            <div class="mt-4 overflow-x-auto">
+              <table class="metrics-table min-w-full text-sm">
+                <thead>
+                  <tr class="border-b">
+                    <th class="px-3 py-2 text-left">Slug</th>
+                    <th class="px-3 py-2 text-left">Count</th>
+                    <th class="px-3 py-2 text-left">Examples</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for row <- @unclassified_stats do %>
+                    <tr class="border-b">
+                      <td class="px-3 py-2">{row.slug}</td>
+                      <td class="px-3 py-2">{row.count}</td>
+                      <td class="px-3 py-2">
+                        <div class="flex flex-wrap gap-2">
+                          <%= for issue_id <- row.examples do %>
+                            <.link
+                              id={"gantt-unclassified-card-#{issue_id}"}
+                              navigate={~p"/card/#{issue_id}"}
+                              class="metrics-pill metrics-pill-accent px-2 py-1 text-[11px]"
+                            >
+                              {issue_id}
+                            </.link>
+                          <% end %>
+                        </div>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        <% end %>
+
         <%= if map_size(@chart_specs) > 0 do %>
           <div
             id="gantt-charts-area"

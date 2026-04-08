@@ -86,7 +86,9 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
       weekly_json: "{}",
       daily_json: "{}",
       fetch_cache_state: :hit,
-      summary_rows: [%{window: "Weekly", issues: 1, completed: 1}]
+      summary_rows: [%{window: "Weekly", issues: 1, completed: 1}],
+      daily_payload: %{issues: [%{id: "PROJ-3"}]},
+      weekly_payload: %{issues: [%{id: "PROJ-7"}]}
     }
 
     send(view.pid, {make_ref(), {:ok, {:report, report_data}}})
@@ -99,5 +101,12 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
 
     assert has_element?(view, "pre", "{}")
     assert has_element?(view, "#weekly-cache-state", "Last fetch source: cache hit")
+
+    view
+    |> element("button[phx-value-tab='summary']")
+    |> render_click()
+
+    assert has_element?(view, "#weekly-daily-card-PROJ-3")
+    assert has_element?(view, "#weekly-weekly-card-PROJ-7")
   end
 end

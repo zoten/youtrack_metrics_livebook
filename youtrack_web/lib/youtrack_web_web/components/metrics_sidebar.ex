@@ -201,6 +201,7 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
   defp section_path("gantt"), do: "/gantt"
   defp section_path("pairing"), do: "/pairing"
   defp section_path("weekly_report"), do: "/weekly-report"
+  defp section_path("card_focus"), do: "/card"
   defp section_path("workstream_config"), do: "/workstreams"
   defp section_path(_), do: "/"
 end

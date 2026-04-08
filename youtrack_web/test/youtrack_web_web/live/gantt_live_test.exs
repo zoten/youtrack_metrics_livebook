@@ -74,4 +74,25 @@ defmodule YoutrackWeb.GanttLiveTest do
 
     assert has_element?(view, "#gantt-cache-state", "Last fetch source: refresh")
   end
+
+  test "renders deep links for unclassified example cards", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/gantt")
+
+    send(
+      view.pid,
+      {make_ref(),
+       {:ok,
+        %{
+          rules: %{slug_prefix_to_stream: %{}},
+          chart_specs: %{},
+          raw_issues: [],
+          unclassified_stats: [%{slug: "API", count: 1, examples: ["PROJ-101"]}],
+          work_items_count: 0,
+          fetch_cache_state: :hit
+        }}}
+    )
+
+    assert has_element?(view, "#gantt-unclassified-examples")
+    assert has_element?(view, "#gantt-unclassified-card-PROJ-101")
+  end
 end

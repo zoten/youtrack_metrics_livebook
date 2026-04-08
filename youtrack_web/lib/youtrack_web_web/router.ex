@@ -18,6 +18,8 @@ defmodule YoutrackWeb.Router do
     pipe_through(:browser)
 
     live("/", DashboardLive)
+    live("/card", CardFocusLive)
+    live("/card/:issue_id", CardFocusLive)
     live("/flow-metrics", FlowMetricsLive)
     live("/gantt", GanttLive)
     live("/pairing", PairingLive)
