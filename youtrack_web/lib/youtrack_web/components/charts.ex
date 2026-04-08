@@ -196,6 +196,7 @@ defmodule YoutrackWeb.Components.Charts do
   attr(:title, :string, required: true)
   attr(:subtitle, :string, default: nil)
   attr(:class, :string, default: nil)
+  attr(:default_open, :boolean, default: true)
   slot(:inner_block, required: true)
 
   def collapsible_section(assigns) do
@@ -203,7 +204,7 @@ defmodule YoutrackWeb.Components.Charts do
     <details
       id={@id}
       class={["metrics-card rounded-[2rem] p-6 group/card", @class]}
-      open
+      open={@default_open}
       phx-hook=".ChartCollapse"
     >
       <summary class="flex cursor-pointer select-none list-none items-center justify-between gap-2">

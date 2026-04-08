@@ -1357,6 +1357,29 @@ defmodule YoutrackWeb.FlowMetricsLive do
                 spec={@chart_specs.throughput_by_person}
                 class="h-96"
               />
+              <.collapsible_section
+                id="flow-cycle-time-explainer"
+                title="Cycle time: project definition"
+                subtitle="How this app computes it"
+                class="md:col-span-2"
+                default_open={false}
+              >
+                <div class="space-y-2 metrics-copy text-sm leading-relaxed">
+                  <p>
+                    Cycle time is measured per issue as <strong>resolved_at - start_at</strong>, converted
+                    to days.
+                  </p>
+                  <p>
+                    In this project, <strong>start_at</strong> comes from the first transition into an
+                    in-progress state when activity data is enabled; otherwise it falls back to issue
+                    creation time.
+                  </p>
+                  <p>
+                    Values are deduplicated by issue ID and rounded to one decimal place for
+                    visualization.
+                  </p>
+                </div>
+              </.collapsible_section>
               <.chart_card
                 id="chart-cycle-hist"
                 title="Cycle Time Distribution"
@@ -1370,6 +1393,28 @@ defmodule YoutrackWeb.FlowMetricsLive do
                 class="h-96"
               />
               <%= if @chart_specs.net_active_histogram do %>
+                <.collapsible_section
+                  id="flow-net-active-time-explainer"
+                  title="Net active time: project definition"
+                  subtitle="How this app computes it"
+                  class="md:col-span-2"
+                  default_open={false}
+                >
+                  <div class="space-y-2 metrics-copy text-sm leading-relaxed">
+                    <p>
+                      Net active time is calculated only inside the issue cycle window
+                      (<strong>start_at..resolved_at</strong>).
+                    </p>
+                    <p>
+                      The app sums intervals where the state is in one of the configured active
+                      states, then subtracts overlap with hold tags.
+                    </p>
+                    <p>
+                      Hold tags are currently <strong>on hold</strong> and <strong>blocked</strong>.
+                      The resulting duration is shown in days and rounded to one decimal place.
+                    </p>
+                  </div>
+                </.collapsible_section>
                 <.chart_card
                   id="chart-net-active-hist"
                   title="Net Active Time Distribution"

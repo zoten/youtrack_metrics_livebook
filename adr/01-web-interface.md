@@ -28,6 +28,8 @@
   - Card page reuses shared config/sidebar patterns instead of adding a page-local fetch form
   - Initial card analytics pipeline implemented in `Youtrack.CardFocus`, reusing `Youtrack.WeeklyReport` and `Youtrack.Rework`
   - Current page renders issue snapshot, cycle/net active timing, time-in-state, and state/assignee/tag/comment/description histories
+- Phase 3.1 Flow Metrics UX: completed
+  - Added default-collapsed “project definition” explainers for Cycle Time and Net Active Time directly above their distribution/by-stream charts
 
 Create a standalone Phoenix LiveView app (`youtrack_web/`) that coexists with the existing Livebook notebooks, sharing the `youtrack/` library via path dependency. The app provides a single-page dashboard with sidebar navigation across analytical sections (Flow Metrics, Gantt, Pairing, Weekly Report, Card Focus, Workstream Config), rendering VegaLite specs via a `vega-embed` JS hook where charts are needed, with form-based configuration replacing Kino inputs. Both apps share `workstreams.yaml`, env vars, and `prompts/`. Docker-compose runs both services side by side.
 
