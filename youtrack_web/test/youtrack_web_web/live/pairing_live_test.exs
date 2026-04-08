@@ -67,4 +67,47 @@ defmodule YoutrackWeb.PairingLiveTest do
     assert has_element?(view, ".metrics-grid", "42")
     assert has_element?(view, "#pairing-cache-state", "Last fetch source: cache miss")
   end
+
+  test "renders pairing chart cards from async payload", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/pairing")
+
+    chart_spec = %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "data" => %{"values" => [%{"value" => 1}]},
+      "mark" => "bar",
+      "encoding" => %{
+        "x" => %{"field" => "value", "type" => "quantitative"},
+        "y" => %{"aggregate" => "count", "type" => "quantitative"}
+      }
+    }
+
+    send(
+      view.pid,
+      {make_ref(),
+       {:ok,
+        %{
+          chart_specs: %{
+            pair_matrix: chart_spec,
+            pairing_trend: chart_spec,
+            pairing_by_workstream: chart_spec,
+            top_pairs: chart_spec,
+            firefighter_person: chart_spec,
+            firefighter_pair: chart_spec,
+            interrupt_aggregate: chart_spec,
+            interrupt_person: chart_spec,
+            planned_unplanned: chart_spec,
+            involvement_by_person: chart_spec,
+            pairing_by_project: chart_spec
+          },
+          metrics: %{total_issues: 42},
+          fetch_cache_state: :miss
+        }}}
+    )
+
+    assert has_element?(view, "#pairing-charts-area")
+    assert has_element?(view, "#pairing-matrix-chart")
+    assert has_element?(view, "#pairing-matrix-chart-card")
+    assert has_element?(view, "#pairing-trend-chart")
+    assert has_element?(view, "#pairing-by-project-chart")
+  end
 end

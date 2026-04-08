@@ -98,4 +98,58 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
 
     refute has_element?(view, "#activities-progress")
   end
+
+  test "renders flow chart cards from async payload", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/flow-metrics")
+
+    chart_spec = %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "data" => %{"values" => [%{"value" => 1}]},
+      "mark" => "bar",
+      "encoding" => %{
+        "x" => %{"field" => "value", "type" => "quantitative"},
+        "y" => %{"aggregate" => "count", "type" => "quantitative"}
+      }
+    }
+
+    send(
+      view.pid,
+      {make_ref(),
+       {:ok,
+        %{
+          chart_specs: %{
+            throughput: chart_spec,
+            throughput_by_person: chart_spec,
+            cycle_histogram: chart_spec,
+            cycle_by_stream: chart_spec,
+            net_active_histogram: chart_spec,
+            net_active_by_stream: chart_spec,
+            cycle_vs_net_active: chart_spec,
+            wip_by_person: chart_spec,
+            wip_by_stream: chart_spec,
+            context_switch_avg: chart_spec,
+            context_switch_heatmap: chart_spec,
+            bus_factor: chart_spec,
+            long_running: chart_spec,
+            rotation_switches: chart_spec,
+            rotation_tenure: chart_spec,
+            rotation_person_stream: chart_spec,
+            rotation_stream_tenure: chart_spec,
+            rework_by_stream: chart_spec,
+            unplanned_by_stream: chart_spec,
+            unplanned_by_person: chart_spec,
+            unplanned_trend: chart_spec
+          },
+          metrics: %{total_issues: 10, total_work_items: 8},
+          fetch_cache_state: :miss
+        }}}
+    )
+
+    assert has_element?(view, "#flow-charts-area")
+    assert has_element?(view, "#chart-throughput")
+    assert has_element?(view, "#chart-throughput-card")
+    assert has_element?(view, "#chart-context-heat")
+    assert has_element?(view, "#chart-unplanned-trend")
+    assert has_element?(view, "#flow-cache-state", "Last fetch source: cache miss")
+  end
 end

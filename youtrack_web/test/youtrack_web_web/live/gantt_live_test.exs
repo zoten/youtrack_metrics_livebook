@@ -75,6 +75,48 @@ defmodule YoutrackWeb.GanttLiveTest do
     assert has_element?(view, "#gantt-cache-state", "Last fetch source: refresh")
   end
 
+  test "renders gantt chart cards from async payload", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/gantt")
+
+    chart_spec = %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "data" => %{"values" => [%{"value" => 1}]},
+      "mark" => "bar",
+      "encoding" => %{
+        "x" => %{"field" => "value", "type" => "quantitative"},
+        "y" => %{"aggregate" => "count", "type" => "quantitative"}
+      }
+    }
+
+    send(
+      view.pid,
+      {make_ref(),
+       {:ok,
+        %{
+          rules: %{slug_prefix_to_stream: %{}},
+          chart_specs: %{
+            gantt: chart_spec,
+            planned_unplanned: chart_spec,
+            unplanned_person: chart_spec,
+            unplanned_stream: chart_spec,
+            interrupts_weekday: chart_spec,
+            interrupts_monthday: chart_spec,
+            unclassified_slug: chart_spec
+          },
+          raw_issues: [],
+          unclassified_stats: [],
+          work_items_count: 2,
+          fetch_cache_state: :miss
+        }}}
+    )
+
+    assert has_element?(view, "#gantt-charts-area")
+    assert has_element?(view, "#gantt-main-chart")
+    assert has_element?(view, "#gantt-main-chart-card")
+    assert has_element?(view, "#gantt-planned-unplanned-chart")
+    assert has_element?(view, "#gantt-unclassified-slug-chart")
+  end
+
   test "renders deep links for unclassified example cards", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/gantt")
 

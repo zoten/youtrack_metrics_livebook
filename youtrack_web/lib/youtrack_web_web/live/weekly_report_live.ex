@@ -11,6 +11,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
   alias Youtrack.WorkstreamsLoader
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.WeeklyReportSummary
 
   @payload_placeholder "{{REPORT_PAYLOAD_JSON}}"
 
@@ -540,13 +541,13 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
     weekly_payload = %{
       window: %{start: Date.to_iso8601(week_start), end: Date.to_iso8601(week_end)},
-      metrics: summary_metrics(weekly_summaries, weekly_start_ms, weekly_end_ms),
+      metrics: WeeklyReportSummary.summary_metrics(weekly_summaries, weekly_start_ms, weekly_end_ms),
       issues: weekly_summaries
     }
 
     daily_payload = %{
       window: %{date: Date.to_iso8601(last_working_day)},
-      metrics: summary_metrics(daily_summaries, daily_start_ms, daily_end_ms),
+      metrics: WeeklyReportSummary.summary_metrics(daily_summaries, daily_start_ms, daily_end_ms),
       issues: daily_summaries
     }
 
@@ -567,39 +568,10 @@ defmodule YoutrackWeb.WeeklyReportLive do
        daily_json: Jason.encode!(daily_payload, pretty: true),
        weekly_json: Jason.encode!(weekly_payload, pretty: true),
        fetch_cache_state: cache_state,
-       summary_rows: [
-         %{
-           window: "Daily",
-           issues: daily_payload.metrics.issues_touched,
-           completed: daily_payload.metrics.completed_in_window
-         },
-         %{
-           window: "Weekly",
-           issues: weekly_payload.metrics.issues_touched,
-           completed: weekly_payload.metrics.completed_in_window
-         }
-       ]
+       summary_rows: WeeklyReportSummary.summary_rows(daily_payload, weekly_payload)
      }}
   rescue
     e -> {:error, Exception.message(e)}
-  end
-
-  defp summary_metrics(summaries, window_start_ms, window_end_ms) do
-    completed_in_window =
-      Enum.count(summaries, fn summary ->
-        is_integer(summary.resolved) and summary.resolved >= window_start_ms and
-          summary.resolved <= window_end_ms
-      end)
-
-    hold_count = Enum.count(summaries, & &1.is_on_hold)
-    changed_description = Enum.count(summaries, & &1.description_updated_in_window)
-
-    %{
-      issues_touched: length(summaries),
-      completed_in_window: completed_in_window,
-      on_hold: hold_count,
-      description_updates: changed_description
-    }
   end
 
   defp call_llm(config, report_data) do
