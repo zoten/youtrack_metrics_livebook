@@ -26,7 +26,8 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
 
   def reload do
     with :ok <- load_dotenv_files(),
-         {:ok, cache_ttl} <- parse_positive_int(System.get_env("YOUTRACK_CACHE_TTL_SECONDS", "600")) do
+         {:ok, cache_ttl} <-
+           parse_positive_int(System.get_env("YOUTRACK_CACHE_TTL_SECONDS", "600")) do
       dashboard_defaults =
         @dashboard_env_specs
         |> Enum.map(fn {key, env_name, default} -> {key, System.get_env(env_name, default)} end)

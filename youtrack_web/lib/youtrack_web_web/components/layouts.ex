@@ -55,6 +55,8 @@ defmodule YoutrackWeb.Layouts do
   )
 
   attr(:config, :map, required: true)
+  attr(:config_form, :any, required: true)
+  attr(:config_open?, :boolean, default: true)
   attr(:active_section, :string, default: nil)
   attr(:freshness, :any, default: nil)
   attr(:topbar_label, :string, default: "Interface")
@@ -68,6 +70,8 @@ defmodule YoutrackWeb.Layouts do
       <div class="metrics-shell">
         <.metrics_sidebar
           config={@config}
+          config_form={@config_form}
+          config_open?={@config_open?}
           active_section={@active_section}
           freshness={@freshness}
         />

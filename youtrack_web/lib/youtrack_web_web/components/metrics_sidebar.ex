@@ -3,9 +3,13 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
 
   use Phoenix.Component
 
+  import YoutrackWeb.CoreComponents, only: [input: 1]
+
   alias YoutrackWeb.Configuration
 
   attr(:config, :map, required: true)
+  attr(:config_form, :any, required: true)
+  attr(:config_open?, :boolean, default: true)
   attr(:active_section, :string, default: nil)
   attr(:freshness, :any, default: nil)
 
@@ -73,13 +77,75 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
           <dl class="metrics-title mt-3 space-y-3 text-sm">
             <div>
               <dt class="metrics-copy">Workstreams</dt>
-              <dd class="metrics-code mt-1 text-xs text-[color:var(--metrics-accent)]">{@config["workstreams_path"]}</dd>
+              <dd class="metrics-code mt-1 text-xs text-[color:var(--metrics-accent)]">
+                {@config["workstreams_path"]}
+              </dd>
             </div>
             <div>
               <dt class="metrics-copy">Prompts</dt>
-              <dd class="metrics-code mt-1 text-xs text-[color:var(--metrics-accent)]">{@config["prompts_path"]}</dd>
+              <dd class="metrics-code mt-1 text-xs text-[color:var(--metrics-accent)]">
+                {@config["prompts_path"]}
+              </dd>
             </div>
           </dl>
+        </div>
+
+        <div class="metrics-card rounded-3xl p-4 space-y-4">
+          <div class="flex items-center justify-between gap-2">
+            <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
+            <button
+              id="toggle-sidebar-shared-config"
+              type="button"
+              phx-click="toggle_config"
+              class="metrics-button metrics-button-ghost rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]"
+            >
+              {if(@config_open?, do: "⬆️", else: "⬇️")}
+            </button>
+          </div>
+
+          <%= if @config_open? do %>
+            <.form
+              for={@config_form}
+              id="sidebar-shared-config-form"
+              phx-change="config_changed"
+              phx-hook="SharedConfigBridge"
+              class="grid grid-cols-1 gap-3"
+            >
+              <.input field={@config_form[:base_url]} type="text" label="Base URL" />
+              <.input field={@config_form[:token]} type="password" label="Token" />
+              <.input field={@config_form[:base_query]} type="text" label="Base query" />
+              <.input field={@config_form[:days_back]} type="number" label="Days back" />
+              <.input field={@config_form[:state_field]} type="text" label="State field" />
+              <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
+              <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
+              <.input
+                field={@config_form[:excluded_logins]}
+                type="text"
+                label="Excluded logins (CSV)"
+              />
+              <.input
+                field={@config_form[:in_progress_names]}
+                type="text"
+                label="In-progress states (CSV)"
+              />
+              <.input field={@config_form[:done_state_names]} type="text" label="Done states (CSV)" />
+              <.input field={@config_form[:unplanned_tag]} type="text" label="Unplanned tag" />
+              <.input
+                field={@config_form[:use_activities]}
+                type="select"
+                label="Use activities"
+                options={[{"Yes", "true"}, {"No", "false"}]}
+              />
+              <.input
+                field={@config_form[:include_substreams]}
+                type="select"
+                label="Include substreams"
+                options={[{"Yes", "true"}, {"No", "false"}]}
+              />
+              <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
+              <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
+            </.form>
+          <% end %>
         </div>
       </div>
     </aside>
@@ -135,5 +201,6 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
   defp section_path("gantt"), do: "/gantt"
   defp section_path("pairing"), do: "/pairing"
   defp section_path("weekly_report"), do: "/weekly-report"
+  defp section_path("workstream_config"), do: "/workstreams"
   defp section_path(_), do: "/"
 end

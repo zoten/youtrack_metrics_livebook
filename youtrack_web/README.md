@@ -25,6 +25,12 @@ The `phoenix` service:
 	- `WORKSTREAMS_PATH=/data/workstreams.yaml`
 	- `PROMPTS_PATH=/data/prompts`
 
+## Configuration Model
+
+- Shared YouTrack configuration is edited from the sidebar form (`sidebar-shared-config-form`) and is reused across all LiveView pages.
+- Shared fields are persisted in browser localStorage (`youtrack.shared_config`) and sent as LiveView connect params on navigation/reconnect.
+- Weekly report keeps report/LLM fields local to the weekly page form (`weekly-config-form`), so those values do not leak into other pages.
+
 ## Learn more
 
 * Official website: https://www.phoenixframework.org/

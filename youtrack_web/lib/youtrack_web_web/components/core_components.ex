@@ -242,7 +242,10 @@ defmodule YoutrackWeb.CoreComponents do
         <select
           id={@id}
           name={@name}
-          class={[@class || "w-full select metrics-form-control", @errors != [] && (@error_class || "select-error")]}
+          class={[
+            @class || "w-full select metrics-form-control",
+            @errors != [] && (@error_class || "select-error")
+          ]}
           multiple={@multiple}
           {@rest}
         >

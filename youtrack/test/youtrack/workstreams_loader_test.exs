@@ -100,4 +100,111 @@ defmodule Youtrack.WorkstreamsLoaderTest do
       assert {:error, _} = WorkstreamsLoader.load_file("/nonexistent/file.yaml")
     end
   end
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # New persistence helpers
+
+  defp tmp_yaml(content) do
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "workstreams_test_#{:erlang.unique_integer([:positive])}.yaml"
+      )
+
+    File.write!(path, content)
+    on_exit(fn -> File.rm(path) end)
+    path
+  end
+
+  describe "load_file_raw/1" do
+    test "returns {:ok, content} for an existing file" do
+      path = tmp_yaml("BACKEND:\n  slugs:\n    - BACKEND\n")
+      assert {:ok, content} = WorkstreamsLoader.load_file_raw(path)
+      assert String.contains?(content, "BACKEND")
+    end
+
+    test "returns {:error, reason} for a missing file" do
+      assert {:error, _reason} = WorkstreamsLoader.load_file_raw("/nonexistent/path/file.yaml")
+    end
+  end
+
+  describe "save_to_file/2" do
+    test "writes valid YAML to disk and returns :ok" do
+      path = tmp_yaml("")
+      yaml = "BACKEND:\n  slugs:\n    - BACKEND\n"
+      assert :ok = WorkstreamsLoader.save_to_file(yaml, path)
+      assert File.read!(path) == yaml
+    end
+
+    test "returns {:error, reason} for invalid YAML" do
+      path = tmp_yaml("")
+      assert {:error, _reason} = WorkstreamsLoader.save_to_file("key: [unclosed", path)
+    end
+  end
+
+  describe "add_slug_to_stream/3" do
+    test "creates a new stream entry when stream does not exist" do
+      path = tmp_yaml("{}\n")
+
+      assert {:ok, rules, yaml_string} =
+               WorkstreamsLoader.add_slug_to_stream("NEWSLUG", "NEWSTREAM", path)
+
+      assert Map.get(rules.slug_prefix_to_stream, "NEWSLUG") == ["NEWSTREAM"]
+      assert String.contains?(yaml_string, "NEWSTREAM")
+      assert String.contains?(yaml_string, "NEWSLUG")
+    end
+
+    test "adds a new slug to an existing stream entry" do
+      path =
+        tmp_yaml("""
+        BACKEND:
+          slugs:
+            - BACKEND
+        """)
+
+      assert {:ok, rules, yaml_string} =
+               WorkstreamsLoader.add_slug_to_stream("BE", "BACKEND", path)
+
+      assert Map.has_key?(rules.slug_prefix_to_stream, "BE")
+      assert rules.slug_prefix_to_stream["BE"] == ["BACKEND"]
+      assert String.contains?(yaml_string, "BE")
+    end
+
+    test "normalizes slug to uppercase" do
+      path = tmp_yaml("{}\n")
+
+      assert {:ok, rules, _yaml} =
+               WorkstreamsLoader.add_slug_to_stream("backend", "BACKEND", path)
+
+      assert Map.has_key?(rules.slug_prefix_to_stream, "BACKEND")
+    end
+
+    test "does not duplicate a slug already present in the stream's slugs list" do
+      path =
+        tmp_yaml("""
+        BACKEND:
+          slugs:
+            - BACKEND
+        """)
+
+      assert {:ok, rules, _yaml} =
+               WorkstreamsLoader.add_slug_to_stream("BACKEND", "BACKEND", path)
+
+      slug_lists =
+        rules.slug_prefix_to_stream
+        |> Map.values()
+        |> List.flatten()
+        |> Enum.filter(&(&1 == "BACKEND"))
+
+      assert length(slug_lists) == 1
+    end
+
+    test "persists the change to disk" do
+      path = tmp_yaml("{}\n")
+      WorkstreamsLoader.add_slug_to_stream("TEST", "TESTSTREAM", path)
+      content = File.read!(path)
+      assert String.contains?(content, "TEST")
+      assert String.contains?(content, "TESTSTREAM")
+    end
+  end
 end

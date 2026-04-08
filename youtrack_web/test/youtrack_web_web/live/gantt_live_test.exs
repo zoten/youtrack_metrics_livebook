@@ -6,7 +6,7 @@ defmodule YoutrackWeb.GanttLiveTest do
   test "renders gantt shell", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/gantt")
 
-    assert has_element?(view, "#gantt-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
     assert has_element?(view, "#fetch-gantt-data")
     assert has_element?(view, "#reload-gantt-config")
     assert has_element?(view, "#clear-gantt-cache")
@@ -16,30 +16,20 @@ defmodule YoutrackWeb.GanttLiveTest do
   test "toggles gantt configuration", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/gantt")
 
-    assert has_element?(view, "#gantt-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
 
     view
     |> element("#toggle-gantt-config")
     |> render_click()
 
-    refute has_element?(view, "#gantt-config-form")
-  end
-
-  test "exports rules text", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/gantt")
-
-    view
-    |> element("#export-rules")
-    |> render_click()
-
-    assert has_element?(view, "#rules-export-output")
+    refute has_element?(view, "#sidebar-shared-config-form")
   end
 
   test "shows validation error when token is blank", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/gantt")
 
     view
-    |> element("#gantt-config-form")
+    |> element("#sidebar-shared-config-form")
     |> render_change(%{
       "config" => %{
         "base_url" => "https://example.youtrack.cloud",
@@ -62,7 +52,7 @@ defmodule YoutrackWeb.GanttLiveTest do
     |> element("#reload-gantt-config")
     |> render_click()
 
-    assert has_element?(view, "#rules-textarea")
+    assert has_element?(view, "#sidebar-shared-config-form")
   end
 
   test "renders cache source from async payload", %{conn: conn} do

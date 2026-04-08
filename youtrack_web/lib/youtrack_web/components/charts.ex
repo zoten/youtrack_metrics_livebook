@@ -35,8 +35,8 @@ defmodule YoutrackWeb.Components.Charts do
     ~H"""
     <div
       id={@id}
-        phx-hook="VegaLite"
-        data-spec={@spec_json}
+      phx-hook="VegaLite"
+      data-spec={@spec_json}
       class={["metrics-chart", @class]}
     >
       <div class="metrics-chart-loading flex h-full items-center justify-center">
@@ -77,7 +77,12 @@ defmodule YoutrackWeb.Components.Charts do
 
   def chart_card(assigns) do
     ~H"""
-    <details id={"#{@id}-card"} class={["metrics-card rounded-4xl p-4 group/card", @wrapper_class]} open phx-hook=".ChartCollapse">
+    <details
+      id={"#{@id}-card"}
+      class={["metrics-card rounded-4xl p-4 group/card", @wrapper_class]}
+      open
+      phx-hook=".ChartCollapse"
+    >
       <summary class="mb-4 flex cursor-pointer select-none list-none items-center justify-between gap-2">
         <div>
           <h3 class="metrics-title text-lg font-semibold">{@title}</h3>
@@ -85,7 +90,9 @@ defmodule YoutrackWeb.Components.Charts do
             <p class="metrics-copy mt-1 text-sm">{@description}</p>
           <% end %>
         </div>
-        <span class="metrics-copy text-xs transition-transform duration-200 group-open/card:rotate-180">▼</span>
+        <span class="metrics-copy text-xs transition-transform duration-200 group-open/card:rotate-180">
+          ▼
+        </span>
       </summary>
       <.chart id={@id} spec={@spec} class={"w-full #{@class}"} />
     </details>
@@ -193,7 +200,12 @@ defmodule YoutrackWeb.Components.Charts do
 
   def collapsible_section(assigns) do
     ~H"""
-    <details id={@id} class={["metrics-card rounded-[2rem] p-6 group/card", @class]} open phx-hook=".ChartCollapse">
+    <details
+      id={@id}
+      class={["metrics-card rounded-[2rem] p-6 group/card", @class]}
+      open
+      phx-hook=".ChartCollapse"
+    >
       <summary class="flex cursor-pointer select-none list-none items-center justify-between gap-2">
         <div>
           <%= if @subtitle do %>
@@ -201,7 +213,9 @@ defmodule YoutrackWeb.Components.Charts do
           <% end %>
           <h3 class="metrics-title mt-2 text-2xl font-semibold">{@title}</h3>
         </div>
-        <span class="metrics-copy text-xs transition-transform duration-200 group-open/card:rotate-180">▼</span>
+        <span class="metrics-copy text-xs transition-transform duration-200 group-open/card:rotate-180">
+          ▼
+        </span>
       </summary>
       <div class="mt-4">
         {render_slot(@inner_block)}

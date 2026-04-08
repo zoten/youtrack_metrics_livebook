@@ -35,11 +35,71 @@ defmodule YoutrackWeb.Configuration do
       visuals: "Structured payload",
       description: "Signals tables, prompt previews, and local LLM summary generation.",
       highlights: ["JSON payload", "Prompt templates", "Copy/download", "LLM response"]
+    },
+    %{
+      id: "workstream_config",
+      label: "Workstream Config",
+      stage: "Ready",
+      visuals: "Configuration",
+      description: "Edit workstream rules, classify untracked slugs, review match coverage.",
+      highlights: ["YAML editor", "Slug classifier", "Match coverage", "Auto-save"]
     }
+  ]
+
+  @shared_fields [
+    "base_url",
+    "token",
+    "base_query",
+    "days_back",
+    "state_field",
+    "assignees_field",
+    "in_progress_names",
+    "done_state_names",
+    "project_prefix",
+    "excluded_logins",
+    "use_activities",
+    "include_substreams",
+    "unplanned_tag",
+    "workstreams_path",
+    "prompts_path"
   ]
 
   def defaults do
     Application.get_env(:youtrack_web, :dashboard_defaults, %{})
+  end
+
+  def shared_fields do
+    @shared_fields
+  end
+
+  def shared_defaults(config) when is_map(config) do
+    Map.take(config, @shared_fields)
+  end
+
+  def merge_shared(config, incoming) when is_map(config) and is_map(incoming) do
+    shared_incoming =
+      incoming
+      |> Map.take(@shared_fields)
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new(fn {key, value} -> {key, normalize_value(value)} end)
+
+    Map.merge(config, shared_incoming)
+  end
+
+  def merge_partial(config, incoming) when is_map(config) and is_map(incoming) do
+    normalized =
+      incoming
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new(fn {key, value} -> {key, normalize_value(value)} end)
+
+    Map.merge(config, normalized)
+  end
+
+  def shared_from_socket(socket) do
+    socket
+    |> maybe_connect_params()
+    |> Map.get("shared_config")
+    |> normalize_shared_payload()
   end
 
   def reload_defaults do
@@ -52,4 +112,21 @@ defmodule YoutrackWeb.Configuration do
   def sections do
     @sections
   end
+
+  defp maybe_connect_params(socket) do
+    if Phoenix.LiveView.connected?(socket) do
+      Phoenix.LiveView.get_connect_params(socket) || %{}
+    else
+      %{}
+    end
+  end
+
+  defp normalize_shared_payload(payload) when is_map(payload), do: payload
+  defp normalize_shared_payload(_), do: %{}
+
+  defp normalize_value(value) when is_binary(value), do: String.trim(value)
+  defp normalize_value(value) when is_boolean(value), do: to_string(value)
+  defp normalize_value(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_value(value) when is_float(value), do: Float.to_string(value)
+  defp normalize_value(value), do: value
 end

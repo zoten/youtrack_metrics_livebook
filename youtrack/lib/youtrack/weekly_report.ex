@@ -132,6 +132,84 @@ defmodule Youtrack.WeeklyReport do
       ),
       do: nil
 
+  @doc """
+  Computes total milliseconds an issue spent in any of the given `active_state_names`.
+
+  Uses state transition activities to build a timeline. The interval beginning at
+  `start_ms` is assumed active; transitions to states outside `active_state_names`
+  close the current active interval, and transitions back into `active_state_names`
+  open a new one.
+
+  Returns `0` when `start_ms` or `end_ms` is not an integer, or when no time is
+  spent in active states.
+
+  ## Examples
+
+      iex> acts = [
+      ...>   %{"field" => %{"name" => "State"}, "added" => [%{"name" => "To Do"}], "timestamp" => 1_000_010},
+      ...>   %{"field" => %{"name" => "State"}, "added" => [%{"name" => "In Progress"}], "timestamp" => 1_000_020}
+      ...> ]
+      iex> Youtrack.WeeklyReport.net_active_ms_for_states(acts, "State", ["In Progress"], 1_000_000, 1_000_030)
+      20
+  """
+  def net_active_ms_for_states(activities, state_field, active_state_names, start_ms, end_ms)
+      when is_integer(start_ms) and is_integer(end_ms) do
+    activities
+    |> active_intervals_for_named_states(state_field, active_state_names, start_ms, end_ms)
+    |> intervals_total_ms()
+    |> max(0)
+  end
+
+  def net_active_ms_for_states(
+        _activities,
+        _state_field,
+        _active_state_names,
+        _start_ms,
+        _end_ms
+      ),
+      do: 0
+
+  @doc """
+  Computes active-state net time and subtracts overlap with hold-tag intervals.
+
+  Active intervals are built from state transitions into/out of `active_state_names`.
+  Hold intervals are built from tag activities for `hold_tags`.
+  """
+  def net_active_ms_for_states_with_hold(
+        activities,
+        state_field,
+        active_state_names,
+        hold_tags,
+        start_ms,
+        end_ms
+      )
+      when is_integer(start_ms) and is_integer(end_ms) do
+    active_intervals =
+      active_intervals_for_named_states(
+        activities,
+        state_field,
+        active_state_names,
+        start_ms,
+        end_ms
+      )
+
+    hold_intervals = hold_intervals(activities, hold_tags, start_ms, end_ms)
+    active_ms = intervals_total_ms(active_intervals)
+    paused_ms = overlap_total_ms(active_intervals, hold_intervals)
+
+    max(0, active_ms - paused_ms)
+  end
+
+  def net_active_ms_for_states_with_hold(
+        _activities,
+        _state_field,
+        _active_state_names,
+        _hold_tags,
+        _start_ms,
+        _end_ms
+      ),
+      do: 0
+
   # ---------------------------------------------------------------------------
   # Duration formatting
   # ---------------------------------------------------------------------------
@@ -382,6 +460,56 @@ defmodule Youtrack.WeeklyReport do
     category_id == "DescriptionCategory" or
       normalized_text_key?(target_member, "description") or
       normalized_text_key?(field_name, "description")
+  end
+
+  defp active_intervals_for_named_states(
+         activities,
+         state_field,
+         active_state_names,
+         start_ms,
+         end_ms
+       ) do
+    active_set = active_state_names |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+    state_events =
+      activities
+      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == state_field end)
+      |> Enum.filter(&is_integer(&1["timestamp"]))
+      |> Enum.sort_by(& &1["timestamp"])
+      |> Enum.filter(fn a -> a["timestamp"] > start_ms and a["timestamp"] <= end_ms end)
+
+    {intervals, active, active_start} =
+      Enum.reduce(state_events, {[], true, start_ms}, fn act, {acc, active, active_start} ->
+        ts = act["timestamp"]
+        to_states = extract_names(act["added"])
+
+        entering_active? =
+          to_states != [] and Enum.any?(to_states, &(String.downcase(&1) in active_set))
+
+        leaving_active? =
+          to_states != [] and Enum.all?(to_states, &(String.downcase(&1) not in active_set))
+
+        cond do
+          active and leaving_active? ->
+            {[{active_start, ts} | acc], false, nil}
+
+          not active and entering_active? ->
+            {acc, true, ts}
+
+          true ->
+            {acc, active, active_start}
+        end
+      end)
+
+    final_intervals =
+      if active and is_integer(active_start) do
+        [{active_start, end_ms} | intervals]
+      else
+        intervals
+      end
+
+    final_intervals
+    |> Enum.filter(fn {s, e} -> e > s end)
   end
 
   defp normalize_description_change(activity) do

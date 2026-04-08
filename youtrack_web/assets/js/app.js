@@ -30,6 +30,7 @@ import VegaLite from "./hooks"
 
 const CONFIG_OPEN_STORAGE_KEY = "youtrack.config_open"
 const THEME_STORAGE_KEY = "phx:theme"
+const SHARED_CONFIG_STORAGE_KEY = "youtrack.shared_config"
 
 const readConfigOpenPreference = () => {
   try {
@@ -51,6 +52,69 @@ const writeConfigOpenPreference = (isOpen) => {
   } catch (_error) {
     // Ignore storage errors (for example privacy mode restrictions).
   }
+}
+
+const readSharedConfigPreference = () => {
+  try {
+    const raw = window.localStorage.getItem(SHARED_CONFIG_STORAGE_KEY)
+
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw)
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {}
+  } catch (_error) {
+    return {}
+  }
+}
+
+const writeSharedConfigPreference = (value) => {
+  try {
+    window.localStorage.setItem(SHARED_CONFIG_STORAGE_KEY, JSON.stringify(value || {}))
+  } catch (_error) {
+    // Ignore storage errors (for example privacy mode restrictions).
+  }
+}
+
+const sharedConfigFromForm = (form) => {
+  const result = {}
+  const formData = new FormData(form)
+
+  formData.forEach((value, key) => {
+    const match = key.match(/^config\[(.+)\]$/)
+
+    if (match && typeof value === "string") {
+      result[match[1]] = value
+    }
+  })
+
+  return result
+}
+
+const SharedConfigBridge = {
+  mounted() {
+    this.persist = () => {
+      writeSharedConfigPreference(sharedConfigFromForm(this.el))
+    }
+
+    this.el.addEventListener("input", this.persist)
+    this.el.addEventListener("change", this.persist)
+
+    this.persist()
+  },
+
+  updated() {
+    this.persist()
+  },
+
+  destroyed() {
+    this.el.removeEventListener("input", this.persist)
+    this.el.removeEventListener("change", this.persist)
+  },
 }
 
 const normalizeThemePreference = (value) => {
@@ -125,8 +189,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
   params: () => ({
     _csrf_token: csrfToken,
     config_open: readConfigOpenPreference(),
+    shared_config: readSharedConfigPreference(),
   }),
-  hooks: { VegaLite, ...colocatedHooks },
+  hooks: { VegaLite, SharedConfigBridge, ...colocatedHooks },
 })
 
 // Show progress bar on live navigation and form submits

@@ -13,21 +13,12 @@ defmodule YoutrackWeb.GanttLive do
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
 
-  @stream_catalog [
-    "BACKEND",
-    "FRONTEND",
-    "API",
-    "DATABASE",
-    "INFRA",
-    "DOCS",
-    "SECURITY",
-    "BAU",
-    "(unclassified)"
-  ]
-
   @impl true
   def mount(_params, _session, socket) do
-    defaults = Configuration.defaults()
+    defaults =
+      Configuration.defaults()
+      |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
+
     rules = load_rules(defaults["workstreams_path"] || "")
     config_open? = ConfigVisibilityPreference.from_socket(socket)
 
@@ -42,14 +33,15 @@ defmodule YoutrackWeb.GanttLive do
       |> assign(:config, defaults)
       |> assign(:config_form, to_form(defaults, as: :config))
       |> assign(:rules, rules)
-      |> assign(:rules_text, inspect(rules, pretty: true, limit: :infinity))
-      |> assign(:exported_rules, nil)
       |> assign(:chart_specs, %{})
       |> assign(:unclassified_stats, [])
       |> assign(:raw_issues, [])
       |> assign(:work_items_count, 0)
 
-    if connected?(socket), do: send(self(), :maybe_auto_fetch)
+    if connected?(socket) do
+      send(self(), :maybe_auto_fetch)
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+    end
 
     {:ok, socket}
   end
@@ -66,37 +58,12 @@ defmodule YoutrackWeb.GanttLive do
 
   @impl true
   def handle_event("config_changed", %{"config" => params}, socket) do
-    {:noreply,
-     socket
-     |> assign(:config, params)
-     |> assign(:config_form, to_form(params, as: :config))}
-  end
-
-  @impl true
-  def handle_event("rules_changed", %{"rules" => text}, socket) do
-    {:noreply, assign(socket, :rules_text, text)}
-  end
-
-  @impl true
-  def handle_event("export_rules", _params, socket) do
-    {:noreply, assign(socket, :exported_rules, rules_to_yaml(socket.assigns.rules))}
-  end
-
-  @impl true
-  def handle_event("classify_slug", %{"slug" => slug, "stream" => stream}, socket) do
-    rules = put_slug_rule(socket.assigns.rules, slug, stream)
-
-    {chart_specs, unclassified_stats, work_items_count} =
-      rebuild_from_cached_issues(socket.assigns.raw_issues, socket.assigns.config, rules)
+    config = Configuration.merge_shared(socket.assigns.config, params)
 
     {:noreply,
      socket
-     |> assign(:rules, rules)
-     |> assign(:rules_text, inspect(rules, pretty: true, limit: :infinity))
-     |> assign(:exported_rules, rules_to_yaml(rules))
-     |> assign(:chart_specs, chart_specs)
-     |> assign(:unclassified_stats, unclassified_stats)
-     |> assign(:work_items_count, work_items_count)}
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))}
   end
 
   @impl true
@@ -109,7 +76,7 @@ defmodule YoutrackWeb.GanttLive do
          socket
          |> assign(:loading?, true)
          |> assign(:fetch_error, nil)
-         |> start_fetch_task(socket.assigns.config, socket.assigns.rules_text, refresh?)}
+         |> start_fetch_task(socket.assigns.config, refresh?)}
 
       {:error, message} ->
         {:noreply, assign(socket, :fetch_error, message)}
@@ -137,8 +104,6 @@ defmodule YoutrackWeb.GanttLive do
          |> assign(:config, defaults)
          |> assign(:config_form, to_form(defaults, as: :config))
          |> assign(:rules, rules)
-         |> assign(:rules_text, inspect(rules, pretty: true, limit: :infinity))
-         |> assign(:exported_rules, nil)
          |> put_flash(:info, "Reloaded .env and workstreams.yaml")}
 
       {:error, reason} ->
@@ -180,6 +145,20 @@ defmodule YoutrackWeb.GanttLive do
   end
 
   @impl true
+  def handle_info(:workstreams_updated, socket) do
+    rules = load_rules(socket.assigns.config["workstreams_path"] || "")
+
+    {:noreply,
+     socket
+     |> assign(:rules, rules)
+     |> assign(:chart_specs, %{})
+     |> assign(:raw_issues, [])
+     |> assign(:work_items_count, 0)
+     |> assign(:unclassified_stats, [])
+     |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh charts")}
+  end
+
+  @impl true
   def handle_info(:maybe_auto_fetch, socket) do
     cond do
       socket.assigns.loading? ->
@@ -196,14 +175,14 @@ defmodule YoutrackWeb.GanttLive do
          socket
          |> assign(:loading?, true)
          |> assign(:fetch_error, nil)
-         |> start_fetch_task(socket.assigns.config, socket.assigns.rules_text, false)}
+         |> start_fetch_task(socket.assigns.config, false)}
     end
   end
 
-  defp start_fetch_task(socket, config, rules_text, refresh?) do
+  defp start_fetch_task(socket, config, refresh?) do
     task =
       Task.Supervisor.async_nolink(YoutrackWeb.TaskSupervisor, fn ->
-        fetch_and_build_gantt(config, rules_text, refresh?)
+        fetch_and_build_gantt(config, refresh?)
       end)
 
     assign(socket, :fetch_task_ref, task.ref)
@@ -218,8 +197,8 @@ defmodule YoutrackWeb.GanttLive do
     end
   end
 
-  defp fetch_and_build_gantt(config, rules_text, refresh?) do
-    rules = parse_rules_or_default(rules_text, config["workstreams_path"] || "")
+  defp fetch_and_build_gantt(config, refresh?) do
+    rules = load_rules(config["workstreams_path"] || "")
 
     base_url = String.trim(config["base_url"] || "")
     token = String.trim(config["token"] || "")
@@ -283,35 +262,6 @@ defmodule YoutrackWeb.GanttLive do
      }}
   rescue
     e -> {:error, Exception.message(e)}
-  end
-
-  defp rebuild_from_cached_issues([], _config, _rules), do: {%{}, [], 0}
-
-  defp rebuild_from_cached_issues(issues, config, rules) do
-    state_field = String.trim(config["state_field"] || "State")
-    assignees_field = String.trim(config["assignees_field"] || "Assignee")
-    in_progress_names = csv_list(config["in_progress_names"])
-    excluded_logins = csv_list(config["excluded_logins"])
-    include_substreams? = parse_bool(config["include_substreams"])
-    unplanned_tag = String.trim(config["unplanned_tag"] || "")
-
-    work_items =
-      WorkItems.build(
-        issues,
-        state_field: state_field,
-        assignees_field: assignees_field,
-        rules: rules,
-        in_progress_names: in_progress_names,
-        excluded_logins: excluded_logins,
-        include_substreams: include_substreams?,
-        unplanned_tag: maybe_nil(unplanned_tag)
-      )
-
-    {
-      build_chart_specs(work_items),
-      build_unclassified_stats(issues, rules, include_substreams?),
-      length(work_items)
-    }
   end
 
   defp build_chart_specs(work_items) do
@@ -421,14 +371,6 @@ defmodule YoutrackWeb.GanttLive do
     |> Enum.sort_by(& &1.count, :desc)
   end
 
-  defp parse_rules_or_default(rules_text, workstreams_path) do
-    try do
-      Workstreams.parse_rules!(rules_text)
-    rescue
-      _ -> load_rules(workstreams_path)
-    end
-  end
-
   defp load_rules("") do
     {rules, _path} = WorkstreamsLoader.load_from_default_paths()
     rules
@@ -441,49 +383,54 @@ defmodule YoutrackWeb.GanttLive do
     end
   end
 
-  defp put_slug_rule(rules, slug, stream) do
-    normalized_slug = Workstreams.normalize_slug(slug)
-    normalized_stream = String.trim(stream)
-
-    slug_map = Map.put(rules.slug_prefix_to_stream, normalized_slug, [normalized_stream])
-    %{rules | slug_prefix_to_stream: slug_map}
-  end
-
-  defp rules_to_yaml(rules) do
-    slug_yaml =
-      rules.slug_prefix_to_stream
-      |> Enum.sort_by(fn {slug, _} -> slug end)
-      |> Enum.map(fn {slug, streams} ->
-        stream = List.first(streams) || "(unclassified)"
-        "#{stream}:\n  slugs:\n    - #{slug}\n"
-      end)
-      |> Enum.join("\n")
-
-    if slug_yaml == "" do
-      "{}\n"
-    else
-      slug_yaml
-    end
-  end
-
   defp maybe_fetch_start_at(_req, _issues, false, _state_field, _in_progress_names), do: %{}
 
   defp maybe_fetch_start_at(req, issues, true, state_field, in_progress_names) do
-    issues
-    |> Task.async_stream(
-      fn issue ->
-        id = issue["id"]
-        acts = Client.fetch_activities!(req, id)
-        start_at = StartAt.from_activities(acts, state_field, in_progress_names)
-        {id, start_at}
-      end,
-      max_concurrency: 8,
-      timeout: :infinity
-    )
-    |> Enum.reduce(%{}, fn
-      {:ok, {id, start_at}}, acc when is_integer(start_at) -> Map.put(acc, id, start_at)
-      _, acc -> acc
-    end)
+    {start_at_by_issue, errors} =
+      issues
+      |> Task.async_stream(
+        fn issue ->
+          id = issue["id"]
+
+          case safe_fetch_activities(req, id) do
+            {:ok, acts} ->
+              start_at = StartAt.from_activities(acts, state_field, in_progress_names)
+              {:ok, id, start_at}
+
+            {:error, reason} ->
+              {:error, id, reason}
+          end
+        end,
+        max_concurrency: 8,
+        timeout: :infinity
+      )
+      |> Enum.reduce({%{}, []}, fn
+        {:ok, {:ok, id, start_at}}, {acc, errors} when is_integer(start_at) ->
+          {Map.put(acc, id, start_at), errors}
+
+        {:ok, {:ok, _id, _start_at}}, {acc, errors} ->
+          {acc, errors}
+
+        {:ok, {:error, id, reason}}, {acc, errors} ->
+          {acc, [{id, reason} | errors]}
+
+        {:exit, reason}, {acc, errors} ->
+          {acc, [{"(task)", inspect(reason)} | errors]}
+      end)
+
+    if errors == [] do
+      start_at_by_issue
+    else
+      first_reason = errors |> hd() |> elem(1)
+
+      raise "Activities fetch failed for #{length(errors)}/#{length(issues)} issues. Sample error: #{first_reason}. Check Base URL/DNS and token."
+    end
+  end
+
+  defp safe_fetch_activities(req, issue_id) do
+    {:ok, Client.fetch_activities!(req, issue_id)}
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   defp filter_by_project_prefix(issues, ""), do: issues
@@ -680,127 +627,163 @@ defmodule YoutrackWeb.GanttLive do
       flash={@flash}
       current_scope={@current_scope}
       config={@config}
+      config_form={@config_form}
+      config_open?={@config_open?}
       active_section="gantt"
       freshness={@fetch_cache_state}
       topbar_label="Gantt"
       topbar_hint="Timeline view of work items and workstream classification."
     >
       <div class="space-y-6 pb-10">
-          <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
-                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Gantt</h2>
-                <p class="metrics-copy mt-3">Timelines, interrupts, and interactive stream classification.</p>
-              </div>
-              <div class="flex gap-2">
-                <button id="toggle-gantt-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">
-                  {if(@config_open?, do: "Hide config", else: "Show config")}
-                </button>
-                <button id="fetch-gantt-data" type="button" phx-click="fetch_data" class="metrics-button metrics-button-primary font-semibold">Fetch (cache)</button>
-                <button id="fetch-gantt-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Refresh (API)</button>
-                <button id="reload-gantt-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">Reload Configuration</button>
-                <button id="clear-gantt-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
-              </div>
-            </div>
-            <%= if @fetch_cache_state do %>
-              <p id="gantt-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
-                Last fetch source: {cache_state_label(@fetch_cache_state)}
+        <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+              <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Gantt</h2>
+              <p class="metrics-copy mt-3">
+                Timelines, interrupts, and interactive stream classification.
               </p>
-            <% end %>
-          </div>
-
-          <%= if @fetch_error do %>
-            <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">{@fetch_error}</div>
-          <% end %>
-
-          <%= if @config_open? do %>
-            <section class="metrics-card rounded-[2rem] p-6 space-y-4">
-              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
-              <.form for={@config_form} id="gantt-config-form" phx-change="config_changed" class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <.input field={@config_form[:base_url]} type="text" label="Base URL" />
-                <.input field={@config_form[:token]} type="password" label="Token" />
-                <.input field={@config_form[:base_query]} type="text" label="Base query" />
-                <.input field={@config_form[:days_back]} type="number" label="Days back" />
-                <.input field={@config_form[:state_field]} type="text" label="State field" />
-                <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
-                <.input field={@config_form[:in_progress_names]} type="text" label="In-progress states (CSV)" />
-                <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
-                <.input field={@config_form[:excluded_logins]} type="text" label="Excluded logins (CSV)" />
-                <.input field={@config_form[:unplanned_tag]} type="text" label="Unplanned tag" />
-                <.input field={@config_form[:use_activities]} type="select" label="Use activities" options={[{"Yes", "true"}, {"No", "false"}]} />
-                <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
-              </.form>
-
-              <div>
-                <label class="metrics-form-label mb-2 block text-sm" for="rules-textarea">Stream rules (Elixir map literal)</label>
-                <textarea id="rules-textarea" name="rules" phx-change="rules_changed" class="metrics-form-control w-full rounded-3xl p-3 font-mono text-xs" rows="8">{@rules_text}</textarea>
-                <div class="mt-3 flex gap-2">
-                  <button id="export-rules" type="button" phx-click="export_rules" class="metrics-button metrics-button-ghost px-3 py-2 text-sm">Export rules</button>
-                </div>
-              </div>
-
-              <%= if @exported_rules do %>
-                <div class="metrics-code metrics-code-panel overflow-x-auto rounded-3xl p-4 text-xs">
-                  <pre id="rules-export-output">{@exported_rules}</pre>
-                </div>
-              <% end %>
-            </section>
-          <% end %>
-
-          <%= if @loading? do %>
-            <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
-              <div class="metrics-spinner mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4"></div>
-              Fetching and building gantt data...
             </div>
-          <% end %>
-
-          <div class="metrics-grid">
-            <.stat_card label="Filtered issues" value={to_string(length(@raw_issues))} tone="neutral" />
-            <.stat_card label="Work items" value={to_string(@work_items_count)} tone="success" />
-            <.stat_card label="Unclassified slugs" value={to_string(length(@unclassified_stats))} tone="warning" />
-          </div>
-
-          <%= if @unclassified_stats != [] do %>
-            <.collapsible_section id="gantt-classifier" title="Map unclassified slugs" subtitle="Classifier">
-              <div class="space-y-3">
-                <%= for row <- Enum.take(@unclassified_stats, 12) do %>
-                  <.form for={%{}} as={:classify} phx-submit="classify_slug" class="metrics-subtle-panel grid grid-cols-1 gap-2 rounded-2xl p-3 md:grid-cols-[minmax(0,1fr)_12rem_8rem] md:items-center">
-                    <input type="hidden" name="slug" value={row.slug} />
-                    <div class="metrics-title text-sm">
-                      <span class="font-semibold text-[color:var(--metrics-accent)]">{row.slug}</span>
-                      <span class="metrics-copy ml-2">({row.count})</span>
-                    </div>
-                    <select name="stream" class="metrics-form-control rounded-lg px-2 py-2 text-sm">
-                      <%= for stream <- stream_options(@rules) do %>
-                        <option value={stream}>{stream}</option>
-                      <% end %>
-                    </select>
-                    <button type="submit" class="metrics-button metrics-button-primary px-3 py-2 text-sm font-semibold">Apply</button>
-                  </.form>
-                <% end %>
-              </div>
-            </.collapsible_section>
-          <% end %>
-
-          <%= if map_size(@chart_specs) > 0 do %>
-            <div id="gantt-charts-area" class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
-              <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-                <.collapse_controls target="#gantt-charts-area" />
-                <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
-              </div>
-
-              <div class="grid gap-6 md:grid-cols-2">
-                <.chart_card id="gantt-main-chart" title="Team Gantt" spec={@chart_specs.gantt} wrapper_class="md:col-span-2" class="min-h-[24rem]" />
-                <.chart_card id="gantt-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
-                <.chart_card id="gantt-unplanned-person-chart" title="Unplanned by Person" spec={@chart_specs.unplanned_person} class="h-96" />
-                <.chart_card id="gantt-unplanned-stream-chart" title="Unplanned by Workstream" spec={@chart_specs.unplanned_stream} class="h-96" />
-                <.chart_card id="gantt-interrupts-weekday-chart" title="Interrupts by Weekday" spec={@chart_specs.interrupts_weekday} class="h-80" />
-                <.chart_card id="gantt-interrupts-monthday-chart" title="Interrupts by Monthday" spec={@chart_specs.interrupts_monthday} class="h-80" />
-                <.chart_card id="gantt-unclassified-slug-chart" title="Unclassified Slugs" spec={@chart_specs.unclassified_slug} class="h-80" />
-              </div>
+            <div class="flex gap-2">
+              <button
+                id="toggle-gantt-config"
+                type="button"
+                phx-click="toggle_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                {if(@config_open?, do: "Hide config", else: "Show config")}
+              </button>
+              <button
+                id="fetch-gantt-data"
+                type="button"
+                phx-click="fetch_data"
+                class="metrics-button metrics-button-primary font-semibold"
+              >
+                Fetch (cache)
+              </button>
+              <button
+                id="fetch-gantt-data-refresh"
+                type="button"
+                phx-click="fetch_data"
+                phx-value-refresh="true"
+                class="metrics-button metrics-button-secondary"
+              >
+                Refresh (API)
+              </button>
+              <button
+                id="reload-gantt-config"
+                type="button"
+                phx-click="reload_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                Reload Configuration
+              </button>
+              <button
+                id="clear-gantt-cache"
+                type="button"
+                phx-click="clear_cache"
+                class="metrics-button metrics-button-ghost"
+              >
+                Clear cache
+              </button>
             </div>
+          </div>
+          <%= if @fetch_cache_state do %>
+            <p id="gantt-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
+              Last fetch source: {cache_state_label(@fetch_cache_state)}
+            </p>
           <% end %>
+        </div>
+
+        <%= if @fetch_error do %>
+          <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">
+            {@fetch_error}
+          </div>
+        <% end %>
+
+        <p class="metrics-copy text-xs">
+          Edit workstream classification rules on the
+          <.link navigate="/workstreams" class="underline text-[color:var(--metrics-accent)]">
+            Workstream Config
+          </.link>
+          page.
+        </p>
+
+        <%= if @loading? do %>
+          <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
+            <div class="metrics-spinner mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4">
+            </div>
+            Fetching and building gantt data...
+          </div>
+        <% end %>
+
+        <div class="metrics-grid">
+          <.stat_card label="Filtered issues" value={to_string(length(@raw_issues))} tone="neutral" />
+          <.stat_card label="Work items" value={to_string(@work_items_count)} tone="success" />
+          <.stat_card
+            label="Unclassified slugs"
+            value={to_string(length(@unclassified_stats))}
+            tone="warning"
+          />
+        </div>
+
+        <%= if map_size(@chart_specs) > 0 do %>
+          <div
+            id="gantt-charts-area"
+            class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start"
+          >
+            <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+              <.collapse_controls target="#gantt-charts-area" />
+              <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
+            </div>
+
+            <div class="grid gap-6 md:grid-cols-2">
+              <.chart_card
+                id="gantt-main-chart"
+                title="Team Gantt"
+                spec={@chart_specs.gantt}
+                wrapper_class="md:col-span-2"
+                class="min-h-[24rem]"
+              />
+              <.chart_card
+                id="gantt-planned-unplanned-chart"
+                title="Planned vs Unplanned"
+                spec={@chart_specs.planned_unplanned}
+                class="h-96"
+              />
+              <.chart_card
+                id="gantt-unplanned-person-chart"
+                title="Unplanned by Person"
+                spec={@chart_specs.unplanned_person}
+                class="h-96"
+              />
+              <.chart_card
+                id="gantt-unplanned-stream-chart"
+                title="Unplanned by Workstream"
+                spec={@chart_specs.unplanned_stream}
+                class="h-96"
+              />
+              <.chart_card
+                id="gantt-interrupts-weekday-chart"
+                title="Interrupts by Weekday"
+                spec={@chart_specs.interrupts_weekday}
+                class="h-80"
+              />
+              <.chart_card
+                id="gantt-interrupts-monthday-chart"
+                title="Interrupts by Monthday"
+                spec={@chart_specs.interrupts_monthday}
+                class="h-80"
+              />
+              <.chart_card
+                id="gantt-unclassified-slug-chart"
+                title="Unclassified Slugs"
+                spec={@chart_specs.unclassified_slug}
+                class="h-80"
+              />
+            </div>
+          </div>
+        <% end %>
       </div>
     </Layouts.dashboard>
     """
@@ -823,11 +806,6 @@ defmodule YoutrackWeb.GanttLive do
   defp stat_card_classes("success"), do: "metrics-pill-success"
   defp stat_card_classes("warning"), do: "metrics-button-secondary"
   defp stat_card_classes(_), do: "metrics-pill-muted"
-
-  defp stream_options(rules) do
-    from_rules = rules.slug_prefix_to_stream |> Map.values() |> List.flatten() |> Enum.uniq()
-    (@stream_catalog ++ from_rules) |> Enum.uniq() |> Enum.sort()
-  end
 
   defp cache_state_label(:hit), do: "cache hit"
   defp cache_state_label(:miss), do: "cache miss"

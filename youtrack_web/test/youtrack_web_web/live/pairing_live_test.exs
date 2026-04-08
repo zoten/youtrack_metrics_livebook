@@ -6,7 +6,7 @@ defmodule YoutrackWeb.PairingLiveTest do
   test "renders pairing shell", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/pairing")
 
-    assert has_element?(view, "#pairing-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
     assert has_element?(view, "#fetch-pairing-data")
     assert has_element?(view, "#reload-pairing-config")
     assert has_element?(view, "#clear-pairing-cache")
@@ -16,20 +16,20 @@ defmodule YoutrackWeb.PairingLiveTest do
   test "toggles pairing configuration", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/pairing")
 
-    assert has_element?(view, "#pairing-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
 
     view
     |> element("#toggle-pairing-config")
     |> render_click()
 
-    refute has_element?(view, "#pairing-config-form")
+    refute has_element?(view, "#sidebar-shared-config-form")
   end
 
   test "shows validation error when base query is blank", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/pairing")
 
     view
-    |> element("#pairing-config-form")
+    |> element("#sidebar-shared-config-form")
     |> render_change(%{
       "config" => %{
         "base_url" => "https://example.youtrack.cloud",
@@ -52,7 +52,7 @@ defmodule YoutrackWeb.PairingLiveTest do
     |> element("#reload-pairing-config")
     |> render_click()
 
-    assert has_element?(view, "#pairing-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
   end
 
   test "applies async result payload", %{conn: conn} do

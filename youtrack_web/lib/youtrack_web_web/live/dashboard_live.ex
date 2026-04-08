@@ -6,7 +6,10 @@ defmodule YoutrackWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    defaults = Configuration.defaults()
+    defaults =
+      Configuration.defaults()
+      |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
+
     config_open? = ConfigVisibilityPreference.from_socket(socket)
 
     {:ok,
@@ -31,10 +34,12 @@ defmodule YoutrackWeb.DashboardLive do
 
   @impl true
   def handle_event("config_changed", %{"config" => params}, socket) do
+    config = Configuration.merge_shared(socket.assigns.config, params)
+
     {:noreply,
      socket
-     |> assign(:config, params)
-     |> assign(:config_form, to_form(params, as: :config))}
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))}
   end
 
   @impl true
@@ -54,186 +59,133 @@ defmodule YoutrackWeb.DashboardLive do
       flash={@flash}
       current_scope={@current_scope}
       config={@config}
+      config_form={@config_form}
+      config_open?={@config_open?}
       topbar_label="Dashboard"
       topbar_hint="Overview of your team's key metrics at a glance."
     >
       <div class="mx-auto max-w-7xl space-y-6">
-            <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
-              <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] xl:items-end">
-                <div class="max-w-3xl space-y-5">
-                  <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">
-                    Dashboard home
-                  </p>
-                  <div class="space-y-3">
-                    <h2 id="dashboard-home-title" class="metrics-brand metrics-title text-5xl leading-none">
-                      Choose a live workflow
-                    </h2>
-                    <p class="metrics-copy max-w-2xl text-base leading-7">
-                      The scaffold is gone. Each route below opens a working LiveView that can fetch,
-                      compute, and render actual YouTrack-backed results with the shared configuration
-                      shown on this page.
-                    </p>
-                  </div>
+        <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
+          <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] xl:items-end">
+            <div class="max-w-3xl space-y-5">
+              <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">
+                Dashboard home
+              </p>
+              <div class="space-y-3">
+                <h2
+                  id="dashboard-home-title"
+                  class="metrics-brand metrics-title text-5xl leading-none"
+                >
+                  Choose a live workflow
+                </h2>
+                <p class="metrics-copy max-w-2xl text-base leading-7">
+                  The scaffold is gone. Each route below opens a working LiveView that can fetch,
+                  compute, and render actual YouTrack-backed results with the shared configuration
+                  shown on this page.
+                </p>
+              </div>
 
-                  <div class="flex flex-wrap gap-2">
-                    <span class="metrics-pill metrics-pill-accent">
-                      Shared defaults
-                    </span>
-                    <span class="metrics-pill metrics-pill-muted">
-                      Real routes
-                    </span>
-                    <span class="metrics-pill metrics-pill-success">
-                      Ready sections
-                    </span>
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="metrics-subtle-panel rounded-[1.75rem] p-5">
-                    <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Fast path</p>
-                    <ol class="metrics-title mt-4 space-y-3 text-sm leading-6">
-                      <li>Review shared paths and environment-backed defaults.</li>
-                      <li>Pick the page that matches the analysis you need.</li>
-                      <li>Run the fetch/build action there to render real data.</li>
-                    </ol>
-                  </div>
-
-                  <div class="metrics-grid w-full">
-                  <.stat_card label="Sections" value={to_string(length(@sections))} tone="accent" />
-                  <.stat_card label="Shared source" value="youtrack/ library" tone="neutral" />
-                    <.stat_card label="Entry state" value="Operational" tone="success" />
-                  </div>
-                </div>
+              <div class="flex flex-wrap gap-2">
+                <span class="metrics-pill metrics-pill-accent">
+                  Shared defaults
+                </span>
+                <span class="metrics-pill metrics-pill-muted">
+                  Real routes
+                </span>
+                <span class="metrics-pill metrics-pill-success">
+                  Ready sections
+                </span>
               </div>
             </div>
 
-            <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
-              <div class="space-y-6">
-                <section class="metrics-card rounded-[2rem] p-6">
-                  <div class="flex items-center justify-between gap-4">
-                    <div>
-                      <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Shared configuration</p>
-                      <h3 class="metrics-title mt-2 text-2xl font-semibold">
-                        Live defaults, same sources
-                      </h3>
-                    </div>
-                    <button
-                      id="toggle-shared-config"
-                      type="button"
-                      phx-click="toggle_config"
-                      class="metrics-button metrics-button-ghost rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em]"
-                    >
-                      <%= if @config_open? do %>
-                        Collapse
-                      <% else %>
-                        Expand
-                      <% end %>
-                    </button>
-                  </div>
+            <div class="space-y-4">
+              <div class="metrics-subtle-panel rounded-[1.75rem] p-5">
+                <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Fast path</p>
+                <ol class="metrics-title mt-4 space-y-3 text-sm leading-6">
+                  <li>Review shared paths and environment-backed defaults.</li>
+                  <li>Pick the page that matches the analysis you need.</li>
+                  <li>Run the fetch/build action there to render real data.</li>
+                </ol>
+              </div>
 
-                  <%= if @config_open? do %>
-                    <.form
-                      for={@config_form}
-                      id="shared-config-form"
-                      phx-change="config_changed"
-                      class="mt-6 grid gap-4 md:grid-cols-2"
-                    >
-                      <.input field={@config_form[:base_url]} type="text" label="Base URL" />
-                      <.input field={@config_form[:token]} type="password" label="Token" />
-                      <.input field={@config_form[:base_query]} type="text" label="Base query" />
-                      <.input field={@config_form[:days_back]} type="number" label="Days back" />
-                      <.input field={@config_form[:state_field]} type="text" label="State field" />
-                      <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
-                      <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
-                      <.input field={@config_form[:excluded_logins]} type="text" label="Excluded logins" />
-                      <.input field={@config_form[:in_progress_names]} type="text" label="In progress names" />
-                      <.input field={@config_form[:done_state_names]} type="text" label="Done state names" />
-                      <.input field={@config_form[:unplanned_tag]} type="text" label="Unplanned tag" />
-                      <.input
-                        field={@config_form[:use_activities]}
-                        type="select"
-                        label="Use activities"
-                        options={[{"Yes", "true"}, {"No", "false"}]}
-                      />
-                      <.input
-                        field={@config_form[:include_substreams]}
-                        type="select"
-                        label="Include substreams"
-                        options={[{"Yes", "true"}, {"No", "false"}]}
-                      />
-                      <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
-                      <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
-                    </.form>
-                  <% end %>
-                </section>
+              <div class="metrics-grid w-full">
+                <.stat_card label="Sections" value={to_string(length(@sections))} tone="accent" />
+                <.stat_card label="Shared source" value="youtrack/ library" tone="neutral" />
+                <.stat_card label="Entry state" value="Operational" tone="success" />
+              </div>
+            </div>
+          </div>
+        </div>
 
-                <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Sections</p>
-                  <h3 class="metrics-title mt-2 text-2xl font-semibold">Open a live view</h3>
-                  <p class="metrics-copy mt-2 max-w-2xl text-sm leading-6">
-                    These cards are direct entry points, not placeholders. Open the page that matches
-                    the decision you need to make.
-                  </p>
-                  <div class="mt-5 grid gap-4 md:grid-cols-2">
-                    <%= for section <- @sections do %>
-                      <div class="metrics-subtle-panel rounded-[1.5rem] p-4 transition hover:border-[color:color-mix(in_oklab,var(--metrics-accent)_30%,transparent)] hover:bg-[color:color-mix(in_oklab,var(--metrics-text)_7%,transparent)]">
-                        <div class="flex items-start justify-between gap-4">
-                          <div>
-                            <h4 class="metrics-title text-lg font-semibold">{section.label}</h4>
-                            <p class="metrics-eyebrow mt-1 text-xs uppercase tracking-[0.2em]">
-                              {section.visuals}
-                            </p>
-                            <p class="metrics-copy mt-2 text-sm leading-6">{section.description}</p>
-                          </div>
-                          <span class="metrics-pill metrics-pill-success px-2 py-1 text-[11px]">
-                            {section.stage}
-                          </span>
-                        </div>
-                        <div class="mt-4 flex flex-wrap gap-2">
-                          <%= for highlight <- section.highlights do %>
-                            <span class="metrics-pill metrics-pill-accent px-3 py-2 normal-case tracking-normal text-xs">
-                              {highlight}
-                            </span>
-                          <% end %>
-                        </div>
-                        <.link
-                          id={"open-#{section.id}"}
-                          navigate={section_path(section.id)}
-                          class="metrics-button metrics-button-primary mt-5 text-sm font-semibold"
-                        >
-                          Open {section.label}
-                        </.link>
+        <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+          <div class="space-y-6">
+            <section class="metrics-card rounded-[2rem] p-6">
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Sections</p>
+              <h3 class="metrics-title mt-2 text-2xl font-semibold">Open a live view</h3>
+              <p class="metrics-copy mt-2 max-w-2xl text-sm leading-6">
+                These cards are direct entry points, not placeholders. Open the page that matches
+                the decision you need to make.
+              </p>
+              <div class="mt-5 grid gap-4 md:grid-cols-2">
+                <%= for section <- @sections do %>
+                  <div class="metrics-subtle-panel rounded-[1.5rem] p-4 transition hover:border-[color:color-mix(in_oklab,var(--metrics-accent)_30%,transparent)] hover:bg-[color:color-mix(in_oklab,var(--metrics-text)_7%,transparent)]">
+                    <div class="flex items-start justify-between gap-4">
+                      <div>
+                        <h4 class="metrics-title text-lg font-semibold">{section.label}</h4>
+                        <p class="metrics-eyebrow mt-1 text-xs uppercase tracking-[0.2em]">
+                          {section.visuals}
+                        </p>
+                        <p class="metrics-copy mt-2 text-sm leading-6">{section.description}</p>
                       </div>
-                    <% end %>
+                      <span class="metrics-pill metrics-pill-success px-2 py-1 text-[11px]">
+                        {section.stage}
+                      </span>
+                    </div>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <%= for highlight <- section.highlights do %>
+                        <span class="metrics-pill metrics-pill-accent px-3 py-2 normal-case tracking-normal text-xs">
+                          {highlight}
+                        </span>
+                      <% end %>
+                    </div>
+                    <.link
+                      id={"open-#{section.id}"}
+                      navigate={section_path(section.id)}
+                      class="metrics-button metrics-button-primary mt-5 text-sm font-semibold"
+                    >
+                      Open {section.label}
+                    </.link>
                   </div>
-                </section>
+                <% end %>
               </div>
+            </section>
+          </div>
 
-              <aside class="space-y-6">
-                <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Working model</p>
-                  <div class="metrics-copy mt-4 space-y-4 text-sm leading-6">
-                    <div class="metrics-subtle-panel rounded-2xl p-4">
-                      Defaults are loaded from environment variables and prefilled into every section form.
-                    </div>
-                    <div class="metrics-subtle-panel rounded-2xl p-4">
-                      This page is intentionally narrow: choose a route here, do the actual analysis there.
-                    </div>
-                    <div class="metrics-subtle-panel rounded-2xl p-4">
-                      Section pages own the real fetch, cache, chart, and report flows against YouTrack data.
-                    </div>
-                  </div>
-                </section>
+          <aside class="space-y-6">
+            <section class="metrics-card rounded-[2rem] p-6">
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Working model</p>
+              <div class="metrics-copy mt-4 space-y-4 text-sm leading-6">
+                <div class="metrics-subtle-panel rounded-2xl p-4">
+                  Defaults are loaded from environment variables and prefilled into every section form.
+                </div>
+                <div class="metrics-subtle-panel rounded-2xl p-4">
+                  This page is intentionally narrow: choose a route here, do the actual analysis there.
+                </div>
+                <div class="metrics-subtle-panel rounded-2xl p-4">
+                  Section pages own the real fetch, cache, chart, and report flows against YouTrack data.
+                </div>
+              </div>
+            </section>
 
-                <section class="metrics-card rounded-[2rem] p-6">
-                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Preview</p>
-                  <h3 class="metrics-title mt-2 text-xl font-semibold">Effective config snapshot</h3>
-                  <div class="metrics-code metrics-code-panel mt-4 overflow-x-auto rounded-3xl p-4 text-xs leading-6">
-                    <pre>{Jason.encode_to_iodata!(@config, pretty: true)}</pre>
-                  </div>
-                </section>
-              </aside>
-            </div>
+            <section class="metrics-card rounded-[2rem] p-6">
+              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Preview</p>
+              <h3 class="metrics-title mt-2 text-xl font-semibold">Effective config snapshot</h3>
+              <div class="metrics-code metrics-code-panel mt-4 overflow-x-auto rounded-3xl p-4 text-xs leading-6">
+                <pre>{Jason.encode_to_iodata!(@config, pretty: true)}</pre>
+              </div>
+            </section>
+          </aside>
+        </div>
       </div>
     </Layouts.dashboard>
     """

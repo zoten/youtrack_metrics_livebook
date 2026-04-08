@@ -6,6 +6,7 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
   test "renders weekly report shell", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/weekly-report")
 
+    assert has_element?(view, "#sidebar-shared-config-form")
     assert has_element?(view, "#weekly-config-form")
     assert has_element?(view, "#build-weekly-report")
     assert has_element?(view, "#reload-weekly-config")
@@ -16,12 +17,14 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
   test "toggles weekly report configuration", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/weekly-report")
 
+    assert has_element?(view, "#sidebar-shared-config-form")
     assert has_element?(view, "#weekly-config-form")
 
     view
     |> element("#toggle-weekly-config")
     |> render_click()
 
+    refute has_element?(view, "#sidebar-shared-config-form")
     refute has_element?(view, "#weekly-config-form")
   end
 
@@ -55,6 +58,23 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
 
     assert has_element?(view, "#weekly-config-form")
     assert has_element?(view, "#refresh-llm-models")
+  end
+
+  test "keeps llm fields local when shared config changes", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/weekly-report")
+
+    view
+    |> element("#weekly-config-form")
+    |> render_change(%{"config" => %{"llm_model" => "local-llm"}})
+
+    view
+    |> element("#sidebar-shared-config-form")
+    |> render_change(%{"config" => %{"base_query" => "project: SHARED"}})
+
+    assert has_element?(
+             view,
+             "#weekly-config-form select[name='config[llm_model]'] option[selected][value='local-llm']"
+           )
   end
 
   test "switches tabs after synthetic report result", %{conn: conn} do

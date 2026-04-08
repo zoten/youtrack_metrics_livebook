@@ -12,6 +12,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
   alias Youtrack.Rework
   alias Youtrack.Rotation
   alias Youtrack.StartAt
+  alias Youtrack.WeeklyReport
   alias Youtrack.WorkItems
   alias Youtrack.WorkstreamsLoader
   alias YoutrackWeb.Configuration
@@ -19,7 +20,10 @@ defmodule YoutrackWeb.FlowMetricsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    defaults = Configuration.defaults()
+    defaults =
+      Configuration.defaults()
+      |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
+
     config_open? = ConfigVisibilityPreference.from_socket(socket)
 
     socket =
@@ -36,7 +40,10 @@ defmodule YoutrackWeb.FlowMetricsLive do
       |> assign(:chart_specs, %{})
       |> assign(:metrics, %{})
 
-    if connected?(socket), do: send(self(), :maybe_auto_fetch)
+    if connected?(socket) do
+      send(self(), :maybe_auto_fetch)
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+    end
 
     {:ok, socket}
   end
@@ -53,10 +60,12 @@ defmodule YoutrackWeb.FlowMetricsLive do
 
   @impl true
   def handle_event("config_changed", %{"config" => params}, socket) do
+    config = Configuration.merge_shared(socket.assigns.config, params)
+
     {:noreply,
      socket
-     |> assign(:config, params)
-     |> assign(:config_form, to_form(params, as: :config))}
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))}
   end
 
   @impl true
@@ -164,6 +173,15 @@ defmodule YoutrackWeb.FlowMetricsLive do
      |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
   end
 
+  @impl true
+  def handle_info(:workstreams_updated, socket) do
+    {:noreply,
+     socket
+     |> assign(:chart_specs, %{})
+     |> assign(:metrics, %{})
+     |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh charts")}
+  end
+
   defp start_fetch_task(socket, config, refresh?) do
     owner_pid = self()
 
@@ -255,6 +273,9 @@ defmodule YoutrackWeb.FlowMetricsLive do
     wip_by_person = build_wip_by_person(ongoing_items)
     wip_by_stream = build_wip_by_stream(ongoing_items)
 
+    net_active_data =
+      build_net_active_data(finished_items, issue_activities, state_field, in_progress_names)
+
     context_switch_data = build_context_switch_data(work_items)
     context_switch_avg = build_context_switch_avg(context_switch_data)
 
@@ -278,6 +299,12 @@ defmodule YoutrackWeb.FlowMetricsLive do
       throughput_by_person: throughput_by_person_spec(throughput_by_person),
       cycle_histogram: cycle_histogram_spec(cycle_time_data),
       cycle_by_stream: cycle_by_stream_spec(cycle_time_data),
+      net_active_histogram:
+        if(net_active_data == [], do: nil, else: net_active_histogram_spec(net_active_data)),
+      net_active_by_stream:
+        if(net_active_data == [], do: nil, else: net_active_by_stream_spec(net_active_data)),
+      cycle_vs_net_active:
+        if(net_active_data == [], do: nil, else: cycle_vs_net_active_spec(net_active_data)),
       wip_by_person: wip_by_person_spec(wip_by_person),
       wip_by_stream: wip_by_stream_spec(wip_by_stream),
       context_switch_avg: context_switch_avg_spec(context_switch_avg),
@@ -301,6 +328,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
       finished_items: length(finished_items),
       ongoing_items: length(ongoing_items),
       avg_cycle_days: avg_cycle_days(cycle_time_data),
+      avg_net_active_days: avg_net_active_days(net_active_data),
       avg_wip_per_person: avg_wip_per_person(wip_by_person),
       avg_context_switch: avg_context_switch(context_switch_avg),
       low_bus_factor_streams: Enum.count(bus_factor_data, &(&1.bus_factor <= 1)),
@@ -320,32 +348,48 @@ defmodule YoutrackWeb.FlowMetricsLive do
     total = length(issues)
     send(owner_pid, {:activities_progress, 0, total})
 
-    data =
+    {data, errors} =
       issues
       |> Task.async_stream(
         fn issue ->
           id = issue["id"]
-          activities = Client.fetch_activities!(req, id)
-          start_at = StartAt.from_activities(activities, state_field, in_progress_names)
-          {id, start_at, activities}
+
+          case safe_fetch_activities(req, id) do
+            {:ok, activities} ->
+              start_at = StartAt.from_activities(activities, state_field, in_progress_names)
+              {:ok, id, start_at, activities}
+
+            {:error, reason} ->
+              {:error, id, reason}
+          end
         end,
         ordered: false,
         timeout: :infinity,
         max_concurrency: 8
       )
-      |> Enum.reduce({[], 0}, fn
-        {:ok, item}, {acc, done} ->
+      |> Enum.reduce({[], [], 0}, fn
+        {:ok, {:ok, id, start_at, activities}}, {acc, errors, done} ->
           next_done = done + 1
           send(owner_pid, {:activities_progress, next_done, total})
-          {[item | acc], next_done}
+          {[{id, start_at, activities} | acc], errors, next_done}
 
-        _other, {acc, done} ->
+        {:ok, {:error, id, reason}}, {acc, errors, done} ->
           next_done = done + 1
           send(owner_pid, {:activities_progress, next_done, total})
-          {acc, next_done}
+          {acc, [{id, reason} | errors], next_done}
+
+        {:exit, reason}, {acc, errors, done} ->
+          next_done = done + 1
+          send(owner_pid, {:activities_progress, next_done, total})
+          {acc, [{"(task)", inspect(reason)} | errors], next_done}
       end)
-      |> elem(0)
-      |> Enum.reverse()
+      |> then(fn {acc, errors, _done} -> {Enum.reverse(acc), errors} end)
+
+    if errors != [] do
+      first_reason = errors |> hd() |> elem(1)
+
+      raise "Activities fetch failed for #{length(errors)}/#{total} issues. Sample error: #{first_reason}. Check Base URL/DNS and token."
+    end
 
     issue_start_at =
       Enum.reduce(data, %{}, fn {id, start_at, _}, acc ->
@@ -358,6 +402,12 @@ defmodule YoutrackWeb.FlowMetricsLive do
       end)
 
     {issue_start_at, issue_activities}
+  end
+
+  defp safe_fetch_activities(req, issue_id) do
+    {:ok, Client.fetch_activities!(req, issue_id)}
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   defp filter_by_project_prefix(issues, ""), do: issues
@@ -420,6 +470,228 @@ defmodule YoutrackWeb.FlowMetricsLive do
       }
     end)
     |> Enum.uniq_by(& &1.issue_id)
+  end
+
+  defp build_net_active_data(_finished_items, issue_activities, _state_field, _in_progress_names)
+       when map_size(issue_activities) == 0,
+       do: []
+
+  defp build_net_active_data(finished_items, issue_activities, state_field, in_progress_names) do
+    finished_items
+    |> Enum.filter(&(is_integer(&1.start_at) and is_integer(&1.resolved)))
+    |> Enum.uniq_by(& &1.issue_id)
+    |> Enum.map(fn wi ->
+      activities = Map.get(issue_activities, wi.issue_internal_id, [])
+
+      net_active_ms =
+        net_active_ms_for_states(
+          activities,
+          state_field,
+          in_progress_names,
+          wi.start_at,
+          wi.resolved
+        )
+
+      cycle_days = Float.round((wi.resolved - wi.start_at) / 86_400_000, 1)
+      net_active_days = Float.round(net_active_ms / 86_400_000, 1)
+
+      %{
+        issue_id: wi.issue_id,
+        person: wi.person_name,
+        stream: wi.stream,
+        cycle_days: max(cycle_days, 0.0),
+        net_active_days: max(net_active_days, 0.0)
+      }
+    end)
+  end
+
+  defp net_active_ms_for_states(activities, state_field, active_state_names, start_ms, end_ms) do
+    hold_tags = ["on hold", "blocked"]
+
+    if function_exported?(WeeklyReport, :net_active_ms_for_states_with_hold, 6) do
+      WeeklyReport.net_active_ms_for_states_with_hold(
+        activities,
+        state_field,
+        active_state_names,
+        hold_tags,
+        start_ms,
+        end_ms
+      )
+    else
+      fallback_net_active_ms_for_states_with_hold(
+        activities,
+        state_field,
+        active_state_names,
+        hold_tags,
+        start_ms,
+        end_ms
+      )
+    end
+  end
+
+  defp fallback_net_active_ms_for_states_with_hold(
+         _activities,
+         _state_field,
+         _active_state_names,
+         _hold_tags,
+         start_ms,
+         end_ms
+       )
+       when not is_integer(start_ms) or not is_integer(end_ms),
+       do: 0
+
+  defp fallback_net_active_ms_for_states_with_hold(
+         activities,
+         state_field,
+         active_state_names,
+         hold_tags,
+         start_ms,
+         end_ms
+       ) do
+    active_set = active_state_names |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+    state_events =
+      activities
+      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == state_field end)
+      |> Enum.filter(&is_integer(&1["timestamp"]))
+      |> Enum.sort_by(& &1["timestamp"])
+      |> Enum.filter(fn a -> a["timestamp"] > start_ms and a["timestamp"] <= end_ms end)
+
+    {intervals, active, active_start} =
+      Enum.reduce(state_events, {[], true, start_ms}, fn act, {acc, active, active_start} ->
+        ts = act["timestamp"]
+        to_states = activity_state_names(act)
+
+        entering_active? =
+          to_states != [] and Enum.any?(to_states, &(String.downcase(&1) in active_set))
+
+        leaving_active? =
+          to_states != [] and Enum.all?(to_states, &(String.downcase(&1) not in active_set))
+
+        cond do
+          active and leaving_active? ->
+            {[{active_start, ts} | acc], false, nil}
+
+          not active and entering_active? ->
+            {acc, true, ts}
+
+          true ->
+            {acc, active, active_start}
+        end
+      end)
+
+    final_intervals =
+      if active and is_integer(active_start) do
+        [{active_start, end_ms} | intervals]
+      else
+        intervals
+      end
+
+    final_intervals
+    |> Enum.filter(fn {s, e} -> e > s end)
+    |> then(fn active_intervals ->
+      hold_intervals = hold_intervals_from_activities(activities, hold_tags, start_ms, end_ms)
+      active_ms = Enum.reduce(active_intervals, 0, fn {s, e}, acc -> acc + (e - s) end)
+
+      paused_ms =
+        Enum.reduce(active_intervals, 0, fn {sa, ea}, acc ->
+          acc +
+            Enum.reduce(hold_intervals, 0, fn {sb, eb}, overlap_acc ->
+              overlap_start = max(sa, sb)
+              overlap_end = min(ea, eb)
+              overlap_acc + max(0, overlap_end - overlap_start)
+            end)
+        end)
+
+      max(0, active_ms - paused_ms)
+    end)
+  end
+
+  defp activity_state_names(activity) do
+    activity["added"]
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{"name" => name} when is_binary(name) -> [name]
+      name when is_binary(name) -> [name]
+      _ -> []
+    end)
+  end
+
+  defp hold_intervals_from_activities(activities, hold_tags, start_ms, end_ms) do
+    hold_set = hold_tags |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+    tag_events =
+      activities
+      |> Enum.filter(fn a -> get_in(a, ["field", "name"]) == "tags" end)
+      |> Enum.filter(&is_integer(&1["timestamp"]))
+      |> Enum.sort_by(& &1["timestamp"])
+
+    active_before_start =
+      tag_events
+      |> Enum.filter(&(&1["timestamp"] < start_ms))
+      |> Enum.reduce(MapSet.new(), fn ev, active ->
+        added =
+          ev["added"] |> activity_state_names() |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+        removed =
+          ev["removed"] |> activity_state_names() |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+        active
+        |> MapSet.union(MapSet.intersection(added, hold_set))
+        |> MapSet.difference(MapSet.intersection(removed, hold_set))
+      end)
+
+    initial_holding? = MapSet.size(active_before_start) > 0
+
+    {active_tags, intervals, hold_start} =
+      tag_events
+      |> Enum.filter(fn ev -> ev["timestamp"] >= start_ms and ev["timestamp"] <= end_ms end)
+      |> Enum.reduce(
+        {active_before_start, [], if(initial_holding?, do: start_ms, else: nil)},
+        fn ev, {active, acc, current_start} ->
+          ts = ev["timestamp"]
+
+          added =
+            ev["added"] |> activity_state_names() |> Enum.map(&String.downcase/1) |> MapSet.new()
+
+          removed =
+            ev["removed"]
+            |> activity_state_names()
+            |> Enum.map(&String.downcase/1)
+            |> MapSet.new()
+
+          holding_before? = MapSet.size(active) > 0
+
+          next_active =
+            active
+            |> MapSet.union(MapSet.intersection(added, hold_set))
+            |> MapSet.difference(MapSet.intersection(removed, hold_set))
+
+          holding_after? = MapSet.size(next_active) > 0
+
+          cond do
+            not holding_before? and holding_after? ->
+              {next_active, acc, ts}
+
+            holding_before? and not holding_after? and is_integer(current_start) ->
+              {next_active, [{current_start, ts} | acc], nil}
+
+            true ->
+              {next_active, acc, current_start}
+          end
+        end
+      )
+
+    intervals =
+      if MapSet.size(active_tags) > 0 and is_integer(hold_start) and end_ms > hold_start do
+        [{hold_start, end_ms} | intervals]
+      else
+        intervals
+      end
+
+    intervals
+    |> Enum.reverse()
+    |> Enum.filter(fn {s, e} -> e > s end)
   end
 
   defp build_wip_by_person(ongoing_items) do
@@ -617,6 +889,95 @@ defmodule YoutrackWeb.FlowMetricsLive do
           "title" => "Cycle Time (days)"
         },
         "color" => %{"field" => "stream", "type" => "nominal", "legend" => nil}
+      }
+    }
+  end
+
+  defp net_active_histogram_spec(values) do
+    %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "title" => "Net Active Time Distribution (days)",
+      "width" => 600,
+      "height" => 300,
+      "data" => %{"values" => values},
+      "mark" => %{"type" => "bar", "tooltip" => true},
+      "encoding" => %{
+        "x" => %{
+          "field" => "net_active_days",
+          "type" => "quantitative",
+          "bin" => %{"maxbins" => 20},
+          "title" => "Net Active Time (days)"
+        },
+        "y" => %{"aggregate" => "count", "type" => "quantitative", "title" => "Count"}
+      }
+    }
+  end
+
+  defp net_active_by_stream_spec(values) do
+    %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "title" => "Net Active Time by Workstream",
+      "width" => 600,
+      "height" => 300,
+      "data" => %{"values" => values},
+      "mark" => %{"type" => "boxplot", "extent" => 1.5},
+      "encoding" => %{
+        "x" => %{
+          "field" => "stream",
+          "type" => "nominal",
+          "title" => "Workstream",
+          "sort" => "ascending"
+        },
+        "y" => %{
+          "field" => "net_active_days",
+          "type" => "quantitative",
+          "title" => "Net Active Time (days)"
+        },
+        "color" => %{"field" => "stream", "type" => "nominal", "legend" => nil}
+      }
+    }
+  end
+
+  defp cycle_vs_net_active_spec(values) do
+    %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "title" => "Cycle Time vs Net Active Time by Workstream (median)",
+      "width" => 600,
+      "height" => 350,
+      "data" => %{"values" => values},
+      "transform" => [
+        %{
+          "fold" => ["cycle_days", "net_active_days"],
+          "as" => ["metric", "days"]
+        }
+      ],
+      "mark" => %{"type" => "bar", "tooltip" => true},
+      "encoding" => %{
+        "x" => %{
+          "field" => "stream",
+          "type" => "nominal",
+          "title" => "Workstream",
+          "sort" => "ascending"
+        },
+        "y" => %{
+          "field" => "days",
+          "type" => "quantitative",
+          "aggregate" => "median",
+          "title" => "Median Days"
+        },
+        "color" => %{
+          "field" => "metric",
+          "type" => "nominal",
+          "title" => "Metric",
+          "scale" => %{
+            "domain" => ["cycle_days", "net_active_days"],
+            "range" => ["#4c78a8", "#72b7b2"]
+          },
+          "legend" => %{
+            "labelExpr" => "datum.label === 'cycle_days' ? 'Cycle Time' : 'Net Active Time'"
+          }
+        },
+        "xOffset" => %{"field" => "metric", "type" => "nominal"}
       }
     }
   end
@@ -848,124 +1209,272 @@ defmodule YoutrackWeb.FlowMetricsLive do
       flash={@flash}
       current_scope={@current_scope}
       config={@config}
+      config_form={@config_form}
+      config_open?={@config_open?}
       active_section="flow_metrics"
       freshness={@fetch_cache_state}
       topbar_label="Flow Metrics"
       topbar_hint="Cycle time, lead time, and throughput across your boards."
     >
       <div class="space-y-6 pb-10">
-          <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
-                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Flow Metrics</h2>
-                <p class="metrics-copy mt-3">Progress, energy, togetherness, autonomy views from the same YouTrack query.</p>
-              </div>
-              <div class="flex gap-2">
-                <button id="toggle-flow-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">
-                  {if(@config_open?, do: "Hide config", else: "Show config")}
-                </button>
-                <button id="fetch-flow-data" type="button" phx-click="fetch_data" class="metrics-button metrics-button-primary font-semibold">
-                  Fetch (cache)
-                </button>
-                <button id="fetch-flow-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">
-                  Refresh (API)
-                </button>
-                <button id="reload-flow-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">
-                  Reload Configuration
-                </button>
-                <button id="clear-flow-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">
-                  Clear cache
-                </button>
-              </div>
+        <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+              <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Flow Metrics</h2>
+              <p class="metrics-copy mt-3">
+                Progress, energy, togetherness, autonomy views from the same YouTrack query.
+              </p>
             </div>
-            <%= if @fetch_cache_state do %>
-              <p id="flow-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
-                Last fetch source: {cache_state_label(@fetch_cache_state)}
+            <div class="flex gap-2">
+              <button
+                id="toggle-flow-config"
+                type="button"
+                phx-click="toggle_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                {if(@config_open?, do: "Hide config", else: "Show config")}
+              </button>
+              <button
+                id="fetch-flow-data"
+                type="button"
+                phx-click="fetch_data"
+                class="metrics-button metrics-button-primary font-semibold"
+              >
+                Fetch (cache)
+              </button>
+              <button
+                id="fetch-flow-data-refresh"
+                type="button"
+                phx-click="fetch_data"
+                phx-value-refresh="true"
+                class="metrics-button metrics-button-secondary"
+              >
+                Refresh (API)
+              </button>
+              <button
+                id="reload-flow-config"
+                type="button"
+                phx-click="reload_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                Reload Configuration
+              </button>
+              <button
+                id="clear-flow-cache"
+                type="button"
+                phx-click="clear_cache"
+                class="metrics-button metrics-button-ghost"
+              >
+                Clear cache
+              </button>
+            </div>
+          </div>
+          <%= if @fetch_cache_state do %>
+            <p id="flow-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
+              Last fetch source: {cache_state_label(@fetch_cache_state)}
+            </p>
+          <% end %>
+        </div>
+
+        <%= if @fetch_error do %>
+          <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">
+            {@fetch_error}
+          </div>
+        <% end %>
+
+        <%= if @loading? or @activity_progress do %>
+          <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
+            <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-stone-700 border-t-orange-400">
+            </div>
+            <p>Fetching issues, activities, and work-item projections...</p>
+            <%= if @activity_progress do %>
+              <p id="activities-progress" class="metrics-eyebrow mt-3 text-sm">
+                Activities progress: {@activity_progress.done}/{@activity_progress.total}
               </p>
             <% end %>
           </div>
+        <% end %>
 
-          <%= if @fetch_error do %>
-            <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">{@fetch_error}</div>
+        <div class="metrics-grid">
+          <.stat_card label="Issues" value={metric(@metrics, :total_issues)} tone="neutral" />
+          <.stat_card label="Work items" value={metric(@metrics, :total_work_items)} tone="neutral" />
+          <.stat_card label="Finished" value={metric(@metrics, :finished_items)} tone="success" />
+          <.stat_card label="Ongoing" value={metric(@metrics, :ongoing_items)} tone="warning" />
+          <.stat_card
+            label="Avg cycle (days)"
+            value={metric(@metrics, :avg_cycle_days)}
+            tone="accent"
+          />
+          <%= if @metrics[:avg_net_active_days] do %>
+            <.stat_card
+              label="Avg net active (days)"
+              value={metric(@metrics, :avg_net_active_days)}
+              tone="accent"
+            />
           <% end %>
+          <.stat_card
+            label="Context switch"
+            value={metric(@metrics, :avg_context_switch)}
+            tone="warning"
+          />
+          <.stat_card
+            label="Silo streams"
+            value={metric(@metrics, :low_bus_factor_streams)}
+            tone="warning"
+          />
+          <.stat_card
+            label="Unplanned issues"
+            value={metric(@metrics, :unplanned_issues)}
+            tone="accent"
+          />
+        </div>
 
-          <%= if @config_open? do %>
-            <section class="metrics-card rounded-[2rem] p-6">
-              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
-              <.form for={@config_form} id="flow-config-form" phx-change="config_changed" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <.input field={@config_form[:base_url]} type="text" label="Base URL" />
-                <.input field={@config_form[:token]} type="password" label="Token" />
-                <.input field={@config_form[:base_query]} type="text" label="Base query" />
-                <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
-                <.input field={@config_form[:days_back]} type="number" label="Days back" />
-                <.input field={@config_form[:state_field]} type="text" label="State field" />
-                <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
-                <.input field={@config_form[:in_progress_names]} type="text" label="In-progress states (CSV)" />
-                <.input field={@config_form[:done_state_names]} type="text" label="Done states (CSV)" />
-                <.input field={@config_form[:excluded_logins]} type="text" label="Excluded logins (CSV)" />
-                <.input field={@config_form[:unplanned_tag]} type="text" label="Unplanned tag" />
-                <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
-                <.input field={@config_form[:use_activities]} type="select" label="Use activities" options={[{"Yes", "true"}, {"No", "false"}]} />
-                <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
-              </.form>
-            </section>
-          <% end %>
+        <%= if map_size(@chart_specs) > 0 do %>
+          <div
+            id="flow-charts-area"
+            class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start"
+          >
+            <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+              <.collapse_controls target="#flow-charts-area" />
+              <.chart_toc title="Flow Charts" items={chart_nav_items(@chart_specs)} />
+            </div>
 
-          <%= if @loading? or @activity_progress do %>
-            <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
-              <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-stone-700 border-t-orange-400"></div>
-              <p>Fetching issues, activities, and work-item projections...</p>
-              <%= if @activity_progress do %>
-                <p id="activities-progress" class="metrics-eyebrow mt-3 text-sm">
-                  Activities progress: {@activity_progress.done}/{@activity_progress.total}
-                </p>
+            <div class="grid gap-6 md:grid-cols-2">
+              <.chart_card
+                id="chart-throughput"
+                title="Throughput"
+                description="Completed items per week."
+                spec={@chart_specs.throughput}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-throughput-person"
+                title="Throughput by Person"
+                spec={@chart_specs.throughput_by_person}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-cycle-hist"
+                title="Cycle Time Distribution"
+                spec={@chart_specs.cycle_histogram}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-cycle-stream"
+                title="Cycle Time by Stream"
+                spec={@chart_specs.cycle_by_stream}
+                class="h-96"
+              />
+              <%= if @chart_specs.net_active_histogram do %>
+                <.chart_card
+                  id="chart-net-active-hist"
+                  title="Net Active Time Distribution"
+                  spec={@chart_specs.net_active_histogram}
+                  class="h-96"
+                />
+                <.chart_card
+                  id="chart-net-active-stream"
+                  title="Net Active Time by Stream"
+                  spec={@chart_specs.net_active_by_stream}
+                  class="h-96"
+                />
+                <.chart_card
+                  id="chart-cycle-vs-net-active"
+                  title="Cycle vs Net Active Time"
+                  spec={@chart_specs.cycle_vs_net_active}
+                  wrapper_class="md:col-span-2"
+                />
               <% end %>
+              <.chart_card
+                id="chart-wip-person"
+                title="WIP by Person"
+                spec={@chart_specs.wip_by_person}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-wip-stream"
+                title="WIP by Stream"
+                spec={@chart_specs.wip_by_stream}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-context-avg"
+                title="Context Switching Index"
+                spec={@chart_specs.context_switch_avg}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-context-heat"
+                title="Context Switching Heatmap"
+                spec={@chart_specs.context_switch_heatmap}
+                wrapper_class="md:col-span-2"
+              />
+              <.chart_card
+                id="chart-bus-factor"
+                title="Bus Factor"
+                spec={@chart_specs.bus_factor}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-long-running"
+                title="Long Running Ongoing Items"
+                spec={@chart_specs.long_running}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-rotation-switches"
+                title="Rotation Switches"
+                spec={@chart_specs.rotation_switches}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-rotation-tenure"
+                title="Rotation Tenure"
+                spec={@chart_specs.rotation_tenure}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-rotation-person-stream"
+                title="Person × Week Activity"
+                spec={@chart_specs.rotation_person_stream}
+                wrapper_class="md:col-span-2"
+              />
+              <.chart_card
+                id="chart-rotation-stream-tenure"
+                title="Stream Tenure"
+                spec={@chart_specs.rotation_stream_tenure}
+                wrapper_class="md:col-span-2"
+              />
+              <%= if @chart_specs.rework_by_stream do %>
+                <.chart_card
+                  id="chart-rework-stream"
+                  title="Rework by Stream"
+                  spec={@chart_specs.rework_by_stream}
+                  class="h-96"
+                />
+              <% end %>
+              <.chart_card
+                id="chart-unplanned-stream"
+                title="Unplanned by Stream"
+                spec={@chart_specs.unplanned_by_stream}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-unplanned-person"
+                title="Unplanned by Person"
+                spec={@chart_specs.unplanned_by_person}
+                class="h-96"
+              />
+              <.chart_card
+                id="chart-unplanned-trend"
+                title="Unplanned Trend"
+                spec={@chart_specs.unplanned_trend}
+                class="h-96"
+              />
             </div>
-          <% end %>
-
-          <div class="metrics-grid">
-            <.stat_card label="Issues" value={metric(@metrics, :total_issues)} tone="neutral" />
-            <.stat_card label="Work items" value={metric(@metrics, :total_work_items)} tone="neutral" />
-            <.stat_card label="Finished" value={metric(@metrics, :finished_items)} tone="success" />
-            <.stat_card label="Ongoing" value={metric(@metrics, :ongoing_items)} tone="warning" />
-            <.stat_card label="Avg cycle (days)" value={metric(@metrics, :avg_cycle_days)} tone="accent" />
-            <.stat_card label="Context switch" value={metric(@metrics, :avg_context_switch)} tone="warning" />
-            <.stat_card label="Silo streams" value={metric(@metrics, :low_bus_factor_streams)} tone="warning" />
-            <.stat_card label="Unplanned issues" value={metric(@metrics, :unplanned_issues)} tone="accent" />
           </div>
-
-          <%= if map_size(@chart_specs) > 0 do %>
-            <div id="flow-charts-area" class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
-              <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-                <.collapse_controls target="#flow-charts-area" />
-                <.chart_toc title="Flow Charts" items={chart_nav_items(@chart_specs)} />
-              </div>
-
-              <div class="grid gap-6 md:grid-cols-2">
-                <.chart_card id="chart-throughput" title="Throughput" description="Completed items per week." spec={@chart_specs.throughput} class="h-96" />
-                <.chart_card id="chart-throughput-person" title="Throughput by Person" spec={@chart_specs.throughput_by_person} class="h-96" />
-                <.chart_card id="chart-cycle-hist" title="Cycle Time Distribution" spec={@chart_specs.cycle_histogram} class="h-96" />
-                <.chart_card id="chart-cycle-stream" title="Cycle Time by Stream" spec={@chart_specs.cycle_by_stream} class="h-96" />
-                <.chart_card id="chart-wip-person" title="WIP by Person" spec={@chart_specs.wip_by_person} class="h-96" />
-                <.chart_card id="chart-wip-stream" title="WIP by Stream" spec={@chart_specs.wip_by_stream} class="h-96" />
-                <.chart_card id="chart-context-avg" title="Context Switching Index" spec={@chart_specs.context_switch_avg} class="h-96" />
-                <.chart_card id="chart-context-heat" title="Context Switching Heatmap" spec={@chart_specs.context_switch_heatmap} wrapper_class="md:col-span-2" />
-                <.chart_card id="chart-bus-factor" title="Bus Factor" spec={@chart_specs.bus_factor} class="h-96" />
-                <.chart_card id="chart-long-running" title="Long Running Ongoing Items" spec={@chart_specs.long_running} class="h-96" />
-                <.chart_card id="chart-rotation-switches" title="Rotation Switches" spec={@chart_specs.rotation_switches} class="h-96" />
-                <.chart_card id="chart-rotation-tenure" title="Rotation Tenure" spec={@chart_specs.rotation_tenure} class="h-96" />
-                <.chart_card id="chart-rotation-person-stream" title="Person × Week Activity" spec={@chart_specs.rotation_person_stream} wrapper_class="md:col-span-2" />
-                <.chart_card id="chart-rotation-stream-tenure" title="Stream Tenure" spec={@chart_specs.rotation_stream_tenure} wrapper_class="md:col-span-2" />
-                <%= if @chart_specs.rework_by_stream do %>
-                  <.chart_card id="chart-rework-stream" title="Rework by Stream" spec={@chart_specs.rework_by_stream} class="h-96" />
-                <% end %>
-                <.chart_card id="chart-unplanned-stream" title="Unplanned by Stream" spec={@chart_specs.unplanned_by_stream} class="h-96" />
-                <.chart_card id="chart-unplanned-person" title="Unplanned by Person" spec={@chart_specs.unplanned_by_person} class="h-96" />
-                <.chart_card id="chart-unplanned-trend" title="Unplanned Trend" spec={@chart_specs.unplanned_trend} class="h-96" />
-              </div>
-            </div>
-          <% end %>
+        <% end %>
       </div>
     </Layouts.dashboard>
     """
@@ -1009,6 +1518,21 @@ defmodule YoutrackWeb.FlowMetricsLive do
       %{id: "chart-throughput-person", title: "Throughput by Person"},
       %{id: "chart-cycle-hist", title: "Cycle Time Distribution"},
       %{id: "chart-cycle-stream", title: "Cycle Time by Stream"},
+      %{
+        id: "chart-net-active-hist",
+        title: "Net Active Time Distribution",
+        optional: :net_active_histogram
+      },
+      %{
+        id: "chart-net-active-stream",
+        title: "Net Active Time by Stream",
+        optional: :net_active_by_stream
+      },
+      %{
+        id: "chart-cycle-vs-net-active",
+        title: "Cycle vs Net Active Time",
+        optional: :cycle_vs_net_active
+      },
       %{id: "chart-wip-person", title: "WIP by Person"},
       %{id: "chart-wip-stream", title: "WIP by Stream"},
       %{id: "chart-context-avg", title: "Context Switching Index"},
@@ -1035,6 +1559,15 @@ defmodule YoutrackWeb.FlowMetricsLive do
   defp avg_cycle_days(cycle_time_data) do
     cycle_time_data
     |> Enum.map(& &1.cycle_days)
+    |> average()
+    |> Float.round(1)
+  end
+
+  defp avg_net_active_days([]), do: nil
+
+  defp avg_net_active_days(net_active_data) do
+    net_active_data
+    |> Enum.map(& &1.net_active_days)
     |> average()
     |> Float.round(1)
   end

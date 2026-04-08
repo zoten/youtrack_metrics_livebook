@@ -732,4 +732,190 @@ defmodule Youtrack.WeeklyReportTest do
       assert summary.workstreams == ["BACKEND", "API"]
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # net_active_ms_for_states/5
+  # ---------------------------------------------------------------------------
+
+  describe "net_active_ms_for_states/5" do
+    @start_ms 1_000_000
+    @end_ms 5_000_000
+
+    test "returns 0 when start_ms is not an integer" do
+      assert WeeklyReport.net_active_ms_for_states([], "State", ["In Progress"], nil, @end_ms) ==
+               0
+    end
+
+    test "returns 0 when end_ms is not an integer" do
+      assert WeeklyReport.net_active_ms_for_states([], "State", ["In Progress"], @start_ms, nil) ==
+               0
+    end
+
+    test "returns full duration when no state transition activities" do
+      assert WeeklyReport.net_active_ms_for_states(
+               [],
+               "State",
+               ["In Progress"],
+               @start_ms,
+               @end_ms
+             ) ==
+               @end_ms - @start_ms
+    end
+
+    test "subtracts time spent outside the active state" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "In Progress"}],
+          "removed" => [%{"name" => "To Do"}],
+          "timestamp" => 3_000_000
+        }
+      ]
+
+      # Active: 1_000_000–2_000_000 and 3_000_000–5_000_000 = 3_000_000
+      result =
+        WeeklyReport.net_active_ms_for_states(
+          activities,
+          "State",
+          ["In Progress"],
+          @start_ms,
+          @end_ms
+        )
+
+      assert result == 3_000_000
+    end
+
+    test "issue that ends while inactive contributes no trailing time" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 2_000_000
+        }
+      ]
+
+      # Active: 1_000_000–2_000_000 = 1_000_000
+      result =
+        WeeklyReport.net_active_ms_for_states(
+          activities,
+          "State",
+          ["In Progress"],
+          @start_ms,
+          @end_ms
+        )
+
+      assert result == 1_000_000
+    end
+
+    test "ignores activities outside the window" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 500_000
+        }
+      ]
+
+      # Transition before start_ms is ignored; assumed active for full window
+      result =
+        WeeklyReport.net_active_ms_for_states(
+          activities,
+          "State",
+          ["In Progress"],
+          @start_ms,
+          @end_ms
+        )
+
+      assert result == @end_ms - @start_ms
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # net_active_ms_for_states_with_hold/6
+  # ---------------------------------------------------------------------------
+
+  describe "net_active_ms_for_states_with_hold/6" do
+    @start_ms 1_000_000
+    @end_ms 5_000_000
+
+    test "subtracts hold overlap from active-state intervals" do
+      activities = [
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [%{"name" => "on hold"}],
+          "removed" => [],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [],
+          "removed" => [%{"name" => "on hold"}],
+          "timestamp" => 3_000_000
+        }
+      ]
+
+      result =
+        WeeklyReport.net_active_ms_for_states_with_hold(
+          activities,
+          "State",
+          ["In Progress"],
+          ["on hold", "blocked"],
+          @start_ms,
+          @end_ms
+        )
+
+      assert result == 3_000_000
+    end
+
+    test "does not subtract hold time while issue is in inactive state" do
+      activities = [
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "To Do"}],
+          "removed" => [%{"name" => "In Progress"}],
+          "timestamp" => 2_000_000
+        },
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [%{"name" => "blocked"}],
+          "removed" => [],
+          "timestamp" => 2_200_000
+        },
+        %{
+          "field" => %{"name" => "tags"},
+          "added" => [],
+          "removed" => [%{"name" => "blocked"}],
+          "timestamp" => 2_800_000
+        },
+        %{
+          "field" => %{"name" => "State"},
+          "added" => [%{"name" => "In Progress"}],
+          "removed" => [%{"name" => "To Do"}],
+          "timestamp" => 3_000_000
+        }
+      ]
+
+      # Active intervals: 1_000_000–2_000_000 and 3_000_000–5_000_000 = 3_000_000
+      # Blocked interval is fully inside inactive period, so no subtraction from active time.
+      result =
+        WeeklyReport.net_active_ms_for_states_with_hold(
+          activities,
+          "State",
+          ["In Progress"],
+          ["on hold", "blocked"],
+          @start_ms,
+          @end_ms
+        )
+
+      assert result == 3_000_000
+    end
+  end
 end

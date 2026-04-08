@@ -42,7 +42,11 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    defaults = Configuration.defaults() |> with_report_defaults()
+    defaults =
+      Configuration.defaults()
+      |> with_report_defaults()
+      |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
+
     prompt_files = discover_prompt_files(defaults["prompts_path"])
     defaults = ensure_prompt_source(defaults, prompt_files)
     config_open? = ConfigVisibilityPreference.from_socket(socket)
@@ -71,6 +75,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     if connected?(socket) do
       send(self(), :maybe_auto_fetch)
       send(self(), :load_llm_models)
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
     end
 
     {:ok, socket}
@@ -88,13 +93,17 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
   @impl true
   def handle_event("config_changed", %{"config" => params}, socket) do
-    prompt_files = discover_prompt_files(params["prompts_path"] || "")
-    params = ensure_prompt_source(params, prompt_files)
+    config =
+      socket.assigns.config
+      |> Configuration.merge_partial(params)
+
+    prompt_files = discover_prompt_files(config["prompts_path"] || "")
+    config = ensure_prompt_source(config, prompt_files)
 
     {:noreply,
      socket
-     |> assign(:config, params)
-     |> assign(:config_form, to_form(params, as: :config))
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
      |> assign(:prompt_files, prompt_files)}
   end
 
@@ -269,6 +278,14 @@ defmodule YoutrackWeb.WeeklyReportLive do
      |> assign(:loading?, false)
      |> assign(:llm_loading?, false)
      |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_info(:workstreams_updated, socket) do
+    {:noreply,
+     socket
+     |> assign(:report_data, nil)
+     |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh report")}
   end
 
   @impl true
@@ -724,212 +741,383 @@ defmodule YoutrackWeb.WeeklyReportLive do
       flash={@flash}
       current_scope={@current_scope}
       config={@config}
+      config_form={@config_form}
+      config_open?={@config_open?}
       active_section="weekly_report"
       freshness={@fetch_cache_state}
       topbar_label="Weekly Report"
       topbar_hint="Build and preview weekly status reports with LLM assistance."
     >
       <div class="space-y-6 pb-10">
-          <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
-                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Weekly Report</h2>
-                <p class="metrics-copy mt-3">Build daily/weekly payloads and generate leadership-ready narrative with optional LLM.</p>
-              </div>
-              <div class="flex gap-2">
-                <button id="toggle-weekly-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
-                <button id="build-weekly-report" type="button" phx-click="build_report" class="metrics-button metrics-button-primary font-semibold">Build (cache)</button>
-                <button id="build-weekly-report-refresh" type="button" phx-click="build_report" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Rebuild (API)</button>
-                <button id="reload-weekly-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">Reload Configuration</button>
-                <button id="clear-weekly-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
-              </div>
-            </div>
-            <%= if @fetch_cache_state do %>
-              <p id="weekly-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
-                Last fetch source: {cache_state_label(@fetch_cache_state)}
+        <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+              <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Weekly Report</h2>
+              <p class="metrics-copy mt-3">
+                Build daily/weekly payloads and generate leadership-ready narrative with optional LLM.
               </p>
-            <% end %>
+            </div>
+            <div class="flex gap-2">
+              <button
+                id="toggle-weekly-config"
+                type="button"
+                phx-click="toggle_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                {if(@config_open?, do: "Hide config", else: "Show config")}
+              </button>
+              <button
+                id="build-weekly-report"
+                type="button"
+                phx-click="build_report"
+                class="metrics-button metrics-button-primary font-semibold"
+              >
+                Build (cache)
+              </button>
+              <button
+                id="build-weekly-report-refresh"
+                type="button"
+                phx-click="build_report"
+                phx-value-refresh="true"
+                class="metrics-button metrics-button-secondary"
+              >
+                Rebuild (API)
+              </button>
+              <button
+                id="reload-weekly-config"
+                type="button"
+                phx-click="reload_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                Reload Configuration
+              </button>
+              <button
+                id="clear-weekly-cache"
+                type="button"
+                phx-click="clear_cache"
+                class="metrics-button metrics-button-ghost"
+              >
+                Clear cache
+              </button>
+            </div>
           </div>
-
-          <%= if @fetch_error do %>
-            <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">{@fetch_error}</div>
+          <%= if @fetch_cache_state do %>
+            <p id="weekly-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
+              Last fetch source: {cache_state_label(@fetch_cache_state)}
+            </p>
           <% end %>
+        </div>
 
-          <%= if @config_open? do %>
-            <section class="metrics-card rounded-[2rem] p-6">
-              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
-              <.form for={@config_form} id="weekly-config-form" phx-change="config_changed" class="mt-4">
-                <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  <div class="metrics-subtle-panel rounded-3xl p-4">
-                    <p class="metrics-copy text-xs uppercase tracking-[0.22em]">Project and Querying</p>
-                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <.input field={@config_form[:base_url]} type="text" label="Base URL" />
-                      <.input field={@config_form[:token]} type="password" label="Token" />
-                      <.input field={@config_form[:base_query]} type="text" label="Base query" />
-                      <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
-                      <.input field={@config_form[:report_week_start]} type="text" label="Week start (ISO)" />
-                      <.input field={@config_form[:report_week_end]} type="text" label="Week end (ISO)" />
-                      <.input field={@config_form[:report_last_working_day]} type="text" label="Last working day (ISO)" />
-                      <.input field={@config_form[:state_field]} type="text" label="State field" />
-                      <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
-                      <.input field={@config_form[:in_progress_names]} type="text" label="In progress states (CSV)" />
-                      <.input field={@config_form[:report_inactive_states]} type="text" label="Inactive states (CSV)" />
-                      <.input field={@config_form[:report_done_states]} type="text" label="Done states (CSV)" />
-                      <.input field={@config_form[:report_special_tags]} type="text" label="Special tags (CSV)" />
-                      <.input field={@config_form[:report_hold_tags]} type="text" label="Hold tags (CSV)" />
-                      <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
-                      <.input field={@config_form[:report_activity_categories]} type="text" label="Activity categories" />
-                      <div class="md:col-span-2">
-                        <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
-                      </div>
-                    </div>
-                  </div>
+        <%= if @fetch_error do %>
+          <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">
+            {@fetch_error}
+          </div>
+        <% end %>
 
-                  <div class="metrics-subtle-panel rounded-3xl p-4">
-                    <p class="metrics-eyebrow text-xs uppercase tracking-[0.22em]">Send to LLM</p>
-                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <div class="md:col-span-2">
-                        <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
-                        <p class="metrics-copy mt-1 text-xs">Use .prompts/ (or prompts/) with .md and .txt files for reusable prompt templates.</p>
-                      </div>
-                      <.input field={@config_form[:prompt_source]} type="select" label="Prompt source" options={prompt_source_options(@prompt_files)} />
-
-                      <div class="md:col-span-2">
-                        <div class="metrics-subtle-panel flex items-center justify-between gap-3 rounded-2xl px-3 py-2">
-                          <p class="metrics-title text-sm">Available models</p>
-                          <button id="refresh-llm-models" type="button" phx-click="refresh_llm_models" class="metrics-button metrics-button-ghost px-3 py-2 text-xs">Refresh list</button>
-                        </div>
-                        <%= if @llm_models_loading? do %>
-                          <p class="metrics-copy mt-2 text-xs">Loading models from provider...</p>
-                        <% end %>
-                        <%= if @llm_models_error do %>
-                          <p class="metrics-error-copy mt-2 text-xs">{@llm_models_error}</p>
-                        <% end %>
-                      </div>
-
-                      <.input field={@config_form[:llm_base_url]} type="text" label="LLM base URL" />
-                      <.input field={@config_form[:llm_api_key]} type="password" label="LLM API key" />
-                      <.input field={@config_form[:llm_model]} type="select" label="LLM model" options={llm_model_options(@llm_models, @config["llm_model"])} />
-                      <.input field={@config_form[:llm_window]} type="select" label="LLM payload window" options={[{"Daily", "daily"}, {"Weekly", "weekly"}, {"Full", "full"}]} />
-                      <.input field={@config_form[:llm_timeout_seconds]} type="number" label="LLM timeout seconds" />
-
-                      <%= if @config["prompt_source"] == "manual" do %>
-                        <div class="md:col-span-2">
-                          <.input field={@config_form[:manual_prompt]} type="textarea" rows="16" label="Manual prompt" />
-                        </div>
-                      <% end %>
-                    </div>
+        <%= if @config_open? do %>
+          <section class="metrics-card rounded-[2rem] p-6">
+            <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
+            <.form for={@config_form} id="weekly-config-form" phx-change="config_changed" class="mt-4">
+              <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div class="metrics-subtle-panel rounded-3xl p-4">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.22em]">
+                    Weekly Payload Options
+                  </p>
+                  <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <.input
+                      field={@config_form[:report_week_start]}
+                      type="text"
+                      label="Week start (ISO)"
+                    />
+                    <.input field={@config_form[:report_week_end]} type="text" label="Week end (ISO)" />
+                    <.input
+                      field={@config_form[:report_last_working_day]}
+                      type="text"
+                      label="Last working day (ISO)"
+                    />
+                    <.input
+                      field={@config_form[:report_inactive_states]}
+                      type="text"
+                      label="Inactive states (CSV)"
+                    />
+                    <.input
+                      field={@config_form[:report_done_states]}
+                      type="text"
+                      label="Done states (CSV)"
+                    />
+                    <.input
+                      field={@config_form[:report_special_tags]}
+                      type="text"
+                      label="Special tags (CSV)"
+                    />
+                    <.input
+                      field={@config_form[:report_hold_tags]}
+                      type="text"
+                      label="Hold tags (CSV)"
+                    />
+                    <.input
+                      field={@config_form[:report_activity_categories]}
+                      type="text"
+                      label="Activity categories"
+                    />
+                    <.input
+                      field={@config_form[:payload_window]}
+                      type="select"
+                      label="Payload window"
+                      options={[{"Daily", "daily"}, {"Weekly", "weekly"}, {"Full", "full"}]}
+                    />
+                    <.input
+                      field={@config_form[:json_preview_limit]}
+                      type="number"
+                      label="JSON preview limit"
+                    />
                   </div>
                 </div>
-              </.form>
+
+                <div class="metrics-subtle-panel rounded-3xl p-4">
+                  <p class="metrics-eyebrow text-xs uppercase tracking-[0.22em]">Send to LLM</p>
+                  <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <.input
+                      field={@config_form[:prompt_source]}
+                      type="select"
+                      label="Prompt source"
+                      options={prompt_source_options(@prompt_files)}
+                    />
+
+                    <div class="md:col-span-2">
+                      <div class="metrics-subtle-panel flex items-center justify-between gap-3 rounded-2xl px-3 py-2">
+                        <p class="metrics-title text-sm">Available models</p>
+                        <button
+                          id="refresh-llm-models"
+                          type="button"
+                          phx-click="refresh_llm_models"
+                          class="metrics-button metrics-button-ghost px-3 py-2 text-xs"
+                        >
+                          Refresh list
+                        </button>
+                      </div>
+                      <%= if @llm_models_loading? do %>
+                        <p class="metrics-copy mt-2 text-xs">Loading models from provider...</p>
+                      <% end %>
+                      <%= if @llm_models_error do %>
+                        <p class="metrics-error-copy mt-2 text-xs">{@llm_models_error}</p>
+                      <% end %>
+                    </div>
+
+                    <.input field={@config_form[:llm_base_url]} type="text" label="LLM base URL" />
+                    <.input field={@config_form[:llm_api_key]} type="password" label="LLM API key" />
+                    <.input
+                      field={@config_form[:llm_model]}
+                      type="select"
+                      label="LLM model"
+                      options={llm_model_options(@llm_models, @config["llm_model"])}
+                    />
+                    <.input
+                      field={@config_form[:llm_window]}
+                      type="select"
+                      label="LLM payload window"
+                      options={[{"Daily", "daily"}, {"Weekly", "weekly"}, {"Full", "full"}]}
+                    />
+                    <.input
+                      field={@config_form[:llm_timeout_seconds]}
+                      type="number"
+                      label="LLM timeout seconds"
+                    />
+
+                    <%= if @config["prompt_source"] == "manual" do %>
+                      <div class="md:col-span-2">
+                        <.input
+                          field={@config_form[:manual_prompt]}
+                          type="textarea"
+                          rows="16"
+                          label="Manual prompt"
+                        />
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              </div>
+            </.form>
+          </section>
+        <% end %>
+
+        <%= if @loading? do %>
+          <div class="metrics-card metrics-copy rounded-4xl p-8">
+            Building report payload from issues and activities...
+          </div>
+        <% end %>
+
+        <%= if @report_data do %>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              phx-click="select_tab"
+              phx-value-tab="summary"
+              class={tab_class(@active_tab == "summary")}
+            >
+              Summary
+            </button>
+            <button
+              type="button"
+              phx-click="select_tab"
+              phx-value-tab="json"
+              class={tab_class(@active_tab == "json")}
+            >
+              JSON Preview
+            </button>
+            <button
+              type="button"
+              phx-click="select_tab"
+              phx-value-tab="payload"
+              class={tab_class(@active_tab == "payload")}
+            >
+              Payload Tree
+            </button>
+            <button
+              type="button"
+              phx-click="select_tab"
+              phx-value-tab="copy"
+              class={tab_class(@active_tab == "copy")}
+            >
+              Copy/Download
+            </button>
+            <button
+              type="button"
+              phx-click="select_tab"
+              phx-value-tab="llm"
+              class={tab_class(@active_tab == "llm")}
+            >
+              LLM
+            </button>
+          </div>
+
+          <%= if @active_tab == "summary" do %>
+            <section class="metrics-card rounded-4xl p-6">
+              <h3 class="metrics-title text-xl font-semibold">Report Summary</h3>
+              <div class="mt-4 overflow-x-auto">
+                <table class="metrics-table min-w-full text-sm">
+                  <thead>
+                    <tr class="border-b">
+                      <th class="px-3 py-2 text-left">Window</th>
+                      <th class="px-3 py-2 text-left">Issues touched</th>
+                      <th class="px-3 py-2 text-left">Completed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for row <- @report_data.summary_rows do %>
+                      <tr class="border-b">
+                        <td class="px-3 py-2">{row.window}</td>
+                        <td class="px-3 py-2">{row.issues}</td>
+                        <td class="px-3 py-2">{row.completed}</td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
             </section>
           <% end %>
 
-          <%= if @loading? do %>
-            <div class="metrics-card metrics-copy rounded-4xl p-8">Building report payload from issues and activities...</div>
+          <%= if @active_tab == "json" do %>
+            <section class="metrics-card rounded-4xl p-6">
+              <h3 class="metrics-title text-xl font-semibold">JSON Preview</h3>
+              <div class="metrics-code metrics-code-panel mt-4 overflow-x-auto rounded-3xl p-4 text-xs">
+                <pre>{truncate(@report_data.report_json, parse_int(@config["json_preview_limit"], 4000))}</pre>
+              </div>
+            </section>
           <% end %>
 
-          <%= if @report_data do %>
-            <div class="flex flex-wrap gap-2">
-              <button type="button" phx-click="select_tab" phx-value-tab="summary" class={tab_class(@active_tab == "summary")}>Summary</button>
-              <button type="button" phx-click="select_tab" phx-value-tab="json" class={tab_class(@active_tab == "json")}>JSON Preview</button>
-              <button type="button" phx-click="select_tab" phx-value-tab="payload" class={tab_class(@active_tab == "payload")}>Payload Tree</button>
-              <button type="button" phx-click="select_tab" phx-value-tab="copy" class={tab_class(@active_tab == "copy")}>Copy/Download</button>
-              <button type="button" phx-click="select_tab" phx-value-tab="llm" class={tab_class(@active_tab == "llm")}>LLM</button>
-            </div>
-
-            <%= if @active_tab == "summary" do %>
-              <section class="metrics-card rounded-4xl p-6">
-                <h3 class="metrics-title text-xl font-semibold">Report Summary</h3>
-                <div class="mt-4 overflow-x-auto">
-                  <table class="metrics-table min-w-full text-sm">
-                    <thead>
-                      <tr class="border-b">
-                        <th class="px-3 py-2 text-left">Window</th>
-                        <th class="px-3 py-2 text-left">Issues touched</th>
-                        <th class="px-3 py-2 text-left">Completed</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <%= for row <- @report_data.summary_rows do %>
-                        <tr class="border-b">
-                          <td class="px-3 py-2">{row.window}</td>
-                          <td class="px-3 py-2">{row.issues}</td>
-                          <td class="px-3 py-2">{row.completed}</td>
-                        </tr>
-                      <% end %>
-                    </tbody>
-                  </table>
+          <%= if @active_tab == "payload" do %>
+            <section class="metrics-card rounded-4xl p-6 space-y-6">
+              <div>
+                <h3 class="metrics-title text-xl font-semibold">Weekly Payload</h3>
+                <div class="metrics-code metrics-code-panel mt-3 overflow-x-auto rounded-3xl p-4 text-xs">
+                  <pre>{truncate(@report_data.weekly_json, 3000)}</pre>
                 </div>
-              </section>
-            <% end %>
-
-            <%= if @active_tab == "json" do %>
-              <section class="metrics-card rounded-4xl p-6">
-                <h3 class="metrics-title text-xl font-semibold">JSON Preview</h3>
-                <div class="metrics-code metrics-code-panel mt-4 overflow-x-auto rounded-3xl p-4 text-xs">
-                  <pre>{truncate(@report_data.report_json, parse_int(@config["json_preview_limit"], 4000))}</pre>
+              </div>
+              <div>
+                <h3 class="metrics-title text-xl font-semibold">Daily Payload</h3>
+                <div class="metrics-code metrics-code-panel mt-3 overflow-x-auto rounded-3xl p-4 text-xs">
+                  <pre>{truncate(@report_data.daily_json, 3000)}</pre>
                 </div>
-              </section>
-            <% end %>
-
-            <%= if @active_tab == "payload" do %>
-              <section class="metrics-card rounded-4xl p-6 space-y-6">
-                <div>
-                  <h3 class="metrics-title text-xl font-semibold">Weekly Payload</h3>
-                  <div class="metrics-code metrics-code-panel mt-3 overflow-x-auto rounded-3xl p-4 text-xs">
-                    <pre>{truncate(@report_data.weekly_json, 3000)}</pre>
-                  </div>
-                </div>
-                <div>
-                  <h3 class="metrics-title text-xl font-semibold">Daily Payload</h3>
-                  <div class="metrics-code metrics-code-panel mt-3 overflow-x-auto rounded-3xl p-4 text-xs">
-                    <pre>{truncate(@report_data.daily_json, 3000)}</pre>
-                  </div>
-                </div>
-              </section>
-            <% end %>
-
-            <%= if @active_tab == "copy" do %>
-              <section class="metrics-card rounded-4xl p-6 space-y-4">
-                <h3 class="metrics-title text-xl font-semibold">Copy / Download</h3>
-                <a id="download-weekly-json" href={data_uri(@report_data.weekly_json)} download="weekly-report.json" class="metrics-button metrics-button-ghost text-sm">Download weekly JSON</a>
-                <a id="download-daily-json" href={data_uri(@report_data.daily_json)} download="daily-report.json" class="metrics-button metrics-button-ghost text-sm">Download daily JSON</a>
-                <a id="download-full-json" href={data_uri(@report_data.report_json)} download="full-report.json" class="metrics-button metrics-button-ghost text-sm">Download full JSON</a>
-              </section>
-            <% end %>
-
-            <%= if @active_tab == "llm" do %>
-              <section class="metrics-card rounded-4xl p-6 space-y-4">
-                <h3 class="metrics-title text-xl font-semibold">LLM Summary</h3>
-                <div class="flex gap-2">
-                  <button id="generate-prompt" type="button" phx-click="generate_prompt" class="metrics-button metrics-button-ghost text-sm">Generate prompt</button>
-                  <button id="send-to-llm" type="button" phx-click="send_to_llm" class="metrics-button metrics-button-primary text-sm font-semibold">Send to LLM</button>
-                </div>
-
-                <%= if @llm_loading? do %>
-                  <p class="metrics-copy">Calling LLM endpoint...</p>
-                <% end %>
-
-                <%= if @llm_error do %>
-                  <p class="metrics-error-copy">{@llm_error}</p>
-                <% end %>
-
-                <%= if @prompt_preview do %>
-                  <div class="metrics-code metrics-code-panel overflow-x-auto rounded-3xl p-4 text-xs">
-                    <pre>{truncate(@prompt_preview, 4000)}</pre>
-                  </div>
-                <% end %>
-
-                <%= if @llm_response do %>
-                  <div class="metrics-success-panel rounded-2xl p-4 text-sm">
-                    <pre>{@llm_response}</pre>
-                  </div>
-                <% end %>
-              </section>
-            <% end %>
+              </div>
+            </section>
           <% end %>
+
+          <%= if @active_tab == "copy" do %>
+            <section class="metrics-card rounded-4xl p-6 space-y-4">
+              <h3 class="metrics-title text-xl font-semibold">Copy / Download</h3>
+              <a
+                id="download-weekly-json"
+                href={data_uri(@report_data.weekly_json)}
+                download="weekly-report.json"
+                class="metrics-button metrics-button-ghost text-sm"
+              >
+                Download weekly JSON
+              </a>
+              <a
+                id="download-daily-json"
+                href={data_uri(@report_data.daily_json)}
+                download="daily-report.json"
+                class="metrics-button metrics-button-ghost text-sm"
+              >
+                Download daily JSON
+              </a>
+              <a
+                id="download-full-json"
+                href={data_uri(@report_data.report_json)}
+                download="full-report.json"
+                class="metrics-button metrics-button-ghost text-sm"
+              >
+                Download full JSON
+              </a>
+            </section>
+          <% end %>
+
+          <%= if @active_tab == "llm" do %>
+            <section class="metrics-card rounded-4xl p-6 space-y-4">
+              <h3 class="metrics-title text-xl font-semibold">LLM Summary</h3>
+              <div class="flex gap-2">
+                <button
+                  id="generate-prompt"
+                  type="button"
+                  phx-click="generate_prompt"
+                  class="metrics-button metrics-button-ghost text-sm"
+                >
+                  Generate prompt
+                </button>
+                <button
+                  id="send-to-llm"
+                  type="button"
+                  phx-click="send_to_llm"
+                  class="metrics-button metrics-button-primary text-sm font-semibold"
+                >
+                  Send to LLM
+                </button>
+              </div>
+
+              <%= if @llm_loading? do %>
+                <p class="metrics-copy">Calling LLM endpoint...</p>
+              <% end %>
+
+              <%= if @llm_error do %>
+                <p class="metrics-error-copy">{@llm_error}</p>
+              <% end %>
+
+              <%= if @prompt_preview do %>
+                <div class="metrics-code metrics-code-panel overflow-x-auto rounded-3xl p-4 text-xs">
+                  <pre>{truncate(@prompt_preview, 4000)}</pre>
+                </div>
+              <% end %>
+
+              <%= if @llm_response do %>
+                <div class="metrics-success-panel rounded-2xl p-4 text-sm">
+                  <pre>{@llm_response}</pre>
+                </div>
+              <% end %>
+            </section>
+          <% end %>
+        <% end %>
       </div>
     </Layouts.dashboard>
     """

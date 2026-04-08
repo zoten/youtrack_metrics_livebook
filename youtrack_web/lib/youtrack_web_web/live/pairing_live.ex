@@ -13,7 +13,10 @@ defmodule YoutrackWeb.PairingLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    defaults = Configuration.defaults()
+    defaults =
+      Configuration.defaults()
+      |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
+
     config_open? = ConfigVisibilityPreference.from_socket(socket)
 
     socket =
@@ -29,7 +32,10 @@ defmodule YoutrackWeb.PairingLive do
       |> assign(:chart_specs, %{})
       |> assign(:metrics, %{})
 
-    if connected?(socket), do: send(self(), :maybe_auto_fetch)
+    if connected?(socket) do
+      send(self(), :maybe_auto_fetch)
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+    end
 
     {:ok, socket}
   end
@@ -46,10 +52,12 @@ defmodule YoutrackWeb.PairingLive do
 
   @impl true
   def handle_event("config_changed", %{"config" => params}, socket) do
+    config = Configuration.merge_shared(socket.assigns.config, params)
+
     {:noreply,
      socket
-     |> assign(:config, params)
-     |> assign(:config_form, to_form(params, as: :config))}
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))}
   end
 
   @impl true
@@ -122,6 +130,15 @@ defmodule YoutrackWeb.PairingLive do
      socket
      |> assign(:loading?, false)
      |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_info(:workstreams_updated, socket) do
+    {:noreply,
+     socket
+     |> assign(:chart_specs, %{})
+     |> assign(:metrics, %{})
+     |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh charts")}
   end
 
   @impl true
@@ -506,94 +523,197 @@ defmodule YoutrackWeb.PairingLive do
       flash={@flash}
       current_scope={@current_scope}
       config={@config}
+      config_form={@config_form}
+      config_open?={@config_open?}
       active_section="pairing"
       freshness={@fetch_cache_state}
       topbar_label="Pairing"
       topbar_hint="Collaboration patterns and interrupt analysis across the team."
     >
       <div class="space-y-6 pb-10">
-          <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
-                <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Pairing</h2>
-                <p class="metrics-copy mt-3">Collaboration matrix, firefighter patterns, and interrupt trends.</p>
-              </div>
-              <div class="flex gap-2">
-                <button id="toggle-pairing-config" type="button" phx-click="toggle_config" class="metrics-button metrics-button-secondary">{if(@config_open?, do: "Hide config", else: "Show config")}</button>
-                <button id="fetch-pairing-data" type="button" phx-click="fetch_data" class="metrics-button metrics-button-primary font-semibold">Fetch (cache)</button>
-                <button id="fetch-pairing-data-refresh" type="button" phx-click="fetch_data" phx-value-refresh="true" class="metrics-button metrics-button-secondary">Refresh (API)</button>
-                <button id="reload-pairing-config" type="button" phx-click="reload_config" class="metrics-button metrics-button-secondary">Reload Configuration</button>
-                <button id="clear-pairing-cache" type="button" phx-click="clear_cache" class="metrics-button metrics-button-ghost">Clear cache</button>
-              </div>
-            </div>
-            <%= if @fetch_cache_state do %>
-              <p id="pairing-cache-state" class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]">
-                Last fetch source: {cache_state_label(@fetch_cache_state)}
+        <div class="metrics-card-strong rounded-[2rem] px-6 py-6 sm:px-8">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="metrics-eyebrow text-xs uppercase tracking-[0.28em]">Section</p>
+              <h2 class="metrics-brand metrics-title mt-2 text-4xl leading-none">Pairing</h2>
+              <p class="metrics-copy mt-3">
+                Collaboration matrix, firefighter patterns, and interrupt trends.
               </p>
-            <% end %>
-          </div>
-
-          <%= if @fetch_error do %>
-            <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">{@fetch_error}</div>
-          <% end %>
-
-          <%= if @config_open? do %>
-            <section class="metrics-card rounded-[2rem] p-6">
-              <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Configuration</p>
-              <.form for={@config_form} id="pairing-config-form" phx-change="config_changed" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <.input field={@config_form[:base_url]} type="text" label="Base URL" />
-                <.input field={@config_form[:token]} type="password" label="Token" />
-                <.input field={@config_form[:base_query]} type="text" label="Base query" />
-                <.input field={@config_form[:days_back]} type="number" label="Days back" />
-                <.input field={@config_form[:assignees_field]} type="text" label="Assignees field" />
-                <.input field={@config_form[:project_prefix]} type="text" label="Project prefix" />
-                <.input field={@config_form[:excluded_logins]} type="text" label="Excluded logins (CSV)" />
-                <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
-                <.input field={@config_form[:include_substreams]} type="select" label="Include substreams" options={[{"Yes", "true"}, {"No", "false"}]} />
-                <.input field={@config_form[:unplanned_tag]} type="text" label="Unplanned tag" />
-              </.form>
-            </section>
-          <% end %>
-
-          <%= if @loading? do %>
-            <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
-              <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-stone-700 border-t-orange-400"></div>
-              Fetching issues and extracting pair records...
             </div>
-          <% end %>
-
-          <div class="metrics-grid">
-            <.stat_card label="Total issues" value={metric(@metrics, :total_issues)} tone="neutral" />
-            <.stat_card label="Paired issues" value={metric(@metrics, :paired_issues)} tone="success" />
-            <.stat_card label="Paired issues %" value={metric(@metrics, :paired_issues_pct)} tone="accent" />
-            <.stat_card label="Pair occurrences" value={metric(@metrics, :pair_occurrences)} tone="neutral" />
-            <.stat_card label="Unplanned pairs" value={metric(@metrics, :unplanned_pairs)} tone="warning" />
-            <.stat_card label="Unplanned pairs %" value={metric(@metrics, :unplanned_pairs_pct)} tone="warning" />
-          </div>
-
-          <%= if map_size(@chart_specs) > 0 do %>
-            <div id="pairing-charts-area" class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start">
-              <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-                <.collapse_controls target="#pairing-charts-area" />
-                <.chart_toc title="Pairing Charts" items={chart_nav_items()} />
-              </div>
-
-              <div class="grid gap-6 md:grid-cols-2">
-                <.chart_card id="pairing-matrix-chart" title="Pair Matrix" spec={@chart_specs.pair_matrix} wrapper_class="md:col-span-2" class="h-[34rem]" />
-                <.chart_card id="pairing-trend-chart" title="Pairing Trend" spec={@chart_specs.pairing_trend} wrapper_class="md:col-span-2" />
-                <.chart_card id="pairing-workstream-chart" title="Pairing by Workstream" spec={@chart_specs.pairing_by_workstream} class="h-96" />
-                <.chart_card id="pairing-top-pairs-chart" title="Top Pairs" spec={@chart_specs.top_pairs} class="h-96" />
-                <.chart_card id="pairing-firefighter-person-chart" title="Firefighters by Person" spec={@chart_specs.firefighter_person} class="h-96" />
-                <.chart_card id="pairing-firefighter-pair-chart" title="Firefighters by Pair" spec={@chart_specs.firefighter_pair} class="h-96" />
-                <.chart_card id="pairing-interrupt-aggregate-chart" title="Interrupt Trend (Aggregate)" spec={@chart_specs.interrupt_aggregate} class="h-96" />
-                <.chart_card id="pairing-interrupt-person-chart" title="Interrupt Trend by Person" spec={@chart_specs.interrupt_person} wrapper_class="md:col-span-2" />
-                <.chart_card id="pairing-planned-unplanned-chart" title="Planned vs Unplanned" spec={@chart_specs.planned_unplanned} class="h-96" />
-                <.chart_card id="pairing-involvement-chart" title="Pair Involvement by Person" spec={@chart_specs.involvement_by_person} class="h-96" />
-                <.chart_card id="pairing-by-project-chart" title="Pairing by Project" spec={@chart_specs.pairing_by_project} class="h-96" />
-              </div>
+            <div class="flex gap-2">
+              <button
+                id="toggle-pairing-config"
+                type="button"
+                phx-click="toggle_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                {if(@config_open?, do: "Hide config", else: "Show config")}
+              </button>
+              <button
+                id="fetch-pairing-data"
+                type="button"
+                phx-click="fetch_data"
+                class="metrics-button metrics-button-primary font-semibold"
+              >
+                Fetch (cache)
+              </button>
+              <button
+                id="fetch-pairing-data-refresh"
+                type="button"
+                phx-click="fetch_data"
+                phx-value-refresh="true"
+                class="metrics-button metrics-button-secondary"
+              >
+                Refresh (API)
+              </button>
+              <button
+                id="reload-pairing-config"
+                type="button"
+                phx-click="reload_config"
+                class="metrics-button metrics-button-secondary"
+              >
+                Reload Configuration
+              </button>
+              <button
+                id="clear-pairing-cache"
+                type="button"
+                phx-click="clear_cache"
+                class="metrics-button metrics-button-ghost"
+              >
+                Clear cache
+              </button>
             </div>
+          </div>
+          <%= if @fetch_cache_state do %>
+            <p
+              id="pairing-cache-state"
+              class="metrics-eyebrow mt-3 text-xs uppercase tracking-[0.2em]"
+            >
+              Last fetch source: {cache_state_label(@fetch_cache_state)}
+            </p>
           <% end %>
+        </div>
+
+        <%= if @fetch_error do %>
+          <div class="metrics-card rounded-[2rem] border border-red-400/30 bg-red-500/10 p-5 text-red-200">
+            {@fetch_error}
+          </div>
+        <% end %>
+
+        <%= if @loading? do %>
+          <div class="metrics-card metrics-copy rounded-[2rem] p-10 text-center">
+            <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-stone-700 border-t-orange-400">
+            </div>
+            Fetching issues and extracting pair records...
+          </div>
+        <% end %>
+
+        <div class="metrics-grid">
+          <.stat_card label="Total issues" value={metric(@metrics, :total_issues)} tone="neutral" />
+          <.stat_card label="Paired issues" value={metric(@metrics, :paired_issues)} tone="success" />
+          <.stat_card
+            label="Paired issues %"
+            value={metric(@metrics, :paired_issues_pct)}
+            tone="accent"
+          />
+          <.stat_card
+            label="Pair occurrences"
+            value={metric(@metrics, :pair_occurrences)}
+            tone="neutral"
+          />
+          <.stat_card
+            label="Unplanned pairs"
+            value={metric(@metrics, :unplanned_pairs)}
+            tone="warning"
+          />
+          <.stat_card
+            label="Unplanned pairs %"
+            value={metric(@metrics, :unplanned_pairs_pct)}
+            tone="warning"
+          />
+        </div>
+
+        <%= if map_size(@chart_specs) > 0 do %>
+          <div
+            id="pairing-charts-area"
+            class="grid gap-6 xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start"
+          >
+            <div class="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+              <.collapse_controls target="#pairing-charts-area" />
+              <.chart_toc title="Pairing Charts" items={chart_nav_items()} />
+            </div>
+
+            <div class="grid gap-6 md:grid-cols-2">
+              <.chart_card
+                id="pairing-matrix-chart"
+                title="Pair Matrix"
+                spec={@chart_specs.pair_matrix}
+                wrapper_class="md:col-span-2"
+                class="h-[34rem]"
+              />
+              <.chart_card
+                id="pairing-trend-chart"
+                title="Pairing Trend"
+                spec={@chart_specs.pairing_trend}
+                wrapper_class="md:col-span-2"
+              />
+              <.chart_card
+                id="pairing-workstream-chart"
+                title="Pairing by Workstream"
+                spec={@chart_specs.pairing_by_workstream}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-top-pairs-chart"
+                title="Top Pairs"
+                spec={@chart_specs.top_pairs}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-firefighter-person-chart"
+                title="Firefighters by Person"
+                spec={@chart_specs.firefighter_person}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-firefighter-pair-chart"
+                title="Firefighters by Pair"
+                spec={@chart_specs.firefighter_pair}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-interrupt-aggregate-chart"
+                title="Interrupt Trend (Aggregate)"
+                spec={@chart_specs.interrupt_aggregate}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-interrupt-person-chart"
+                title="Interrupt Trend by Person"
+                spec={@chart_specs.interrupt_person}
+                wrapper_class="md:col-span-2"
+              />
+              <.chart_card
+                id="pairing-planned-unplanned-chart"
+                title="Planned vs Unplanned"
+                spec={@chart_specs.planned_unplanned}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-involvement-chart"
+                title="Pair Involvement by Person"
+                spec={@chart_specs.involvement_by_person}
+                class="h-96"
+              />
+              <.chart_card
+                id="pairing-by-project-chart"
+                title="Pairing by Project"
+                spec={@chart_specs.pairing_by_project}
+                class="h-96"
+              />
+            </div>
+          </div>
+        <% end %>
       </div>
     </Layouts.dashboard>
     """

@@ -14,6 +14,16 @@
 - Phase 4.3 Runtime config reload: completed (toolbar "Reload Configuration" action to re-read `.env` and `workstreams.yaml`)
 - Phase 5: completed (multi-stage release Dockerfile + production compose + mounted shared inputs)
 
+### Incremental Status (2026-04-08)
+
+- Phase 1-3 follow-up: completed
+  - Shared config boundary implemented (`YoutrackWeb.Configuration.shared_fields/0` + merge helpers)
+  - Shared sidebar form is now the single source of truth for cross-page config inputs
+  - LocalStorage bridge implemented for shared config persistence across page switches/reconnects
+  - Per-page duplicated shared forms removed from section pages
+  - Weekly report keeps report+LLM fields local to the page form (not shared globally)
+  - LiveView tests updated for all affected pages
+
 Create a standalone Phoenix LiveView app (`youtrack_web/`) that coexists with the existing Livebook notebooks, sharing the `youtrack/` library via path dependency. The app provides a single-page dashboard with sidebar navigation across four sections (Flow Metrics, Gantt, Pairing, Weekly Report), rendering VegaLite specs via a `vega-embed` JS hook, with form-based configuration replacing Kino inputs. Both apps share `workstreams.yaml`, env vars, and `prompts/`. Docker-compose runs both services side by side.
 
 ---
@@ -198,3 +208,5 @@ youtrack_metrics_livebook/
 3. **API rate limiting** — Single shared Req client per session is sufficient for localhost use. Defer rate limiting unless it becomes an issue.
 
 4. **Theme system exception** — The Phoenix UI now allows DaisyUI specifically as a theming mechanism for the light/dark/system selector and theme tokens. This is intentionally scoped: the app still favors bespoke Tailwind/CSS components for page structure and visual identity, while DaisyUI provides the shared theme variables and selector behavior.
+
+5. **Config ownership boundary** — Shared form inputs live in the sidebar and are persisted via localStorage under `youtrack.shared_config`. Weekly report has additional local-only fields (report window + LLM settings) intentionally excluded from shared persistence.

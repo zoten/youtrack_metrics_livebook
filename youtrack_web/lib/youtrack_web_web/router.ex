@@ -22,6 +22,7 @@ defmodule YoutrackWeb.Router do
     live("/gantt", GanttLive)
     live("/pairing", PairingLive)
     live("/weekly-report", WeeklyReportLive)
+    live("/workstreams", WorkstreamConfigLive)
   end
 
   # Other scopes may use custom stacks.

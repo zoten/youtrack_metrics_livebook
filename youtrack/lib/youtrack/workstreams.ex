@@ -177,6 +177,71 @@ defmodule Youtrack.Workstreams do
   end
 
   @doc """
+  Builds a match statistics list showing how many issues matched each rule.
+
+  Returns a list of maps with keys `:stream`, `:rule_type` (`:slug`, `:tag`, or `:type`),
+  `:rule_value`, and `:count`, sorted by stream then rule_type then rule_value.
+
+  An issue may contribute to multiple rule entries if it matches more than one rule.
+  """
+  def build_match_stats(issues, rules) do
+    issues
+    |> Enum.flat_map(fn issue ->
+      raw_slug = issue["summary"] |> summary_slug()
+      slug = normalize_slug(raw_slug)
+
+      tags =
+        issue_tags(issue)
+        |> Enum.map(&String.upcase/1)
+
+      issue_type =
+        case issue["type"] do
+          %{"name" => name} when is_binary(name) -> name
+          _ -> nil
+        end
+
+      slug_hits =
+        case slug do
+          nil ->
+            []
+
+          s ->
+            case Map.get(rules.slug_prefix_to_stream, s) do
+              nil -> []
+              streams -> Enum.map(streams, &{&1, :slug, s})
+            end
+        end
+
+      tag_hits =
+        Enum.flat_map(tags, fn t ->
+          case Map.get(rules.tag_to_stream, t) do
+            nil -> []
+            streams -> Enum.map(streams, &{&1, :tag, t})
+          end
+        end)
+
+      type_hits =
+        case issue_type do
+          nil ->
+            []
+
+          t ->
+            case Map.get(rules.type_to_stream, t) do
+              nil -> []
+              streams -> Enum.map(streams, &{&1, :type, t})
+            end
+        end
+
+      (slug_hits ++ tag_hits ++ type_hits) |> Enum.uniq()
+    end)
+    |> Enum.frequencies()
+    |> Enum.map(fn {{stream, rule_type, rule_value}, count} ->
+      %{stream: stream, rule_type: rule_type, rule_value: rule_value, count: count}
+    end)
+    |> Enum.sort_by(&{&1.stream, to_string(&1.rule_type), &1.rule_value})
+  end
+
+  @doc """
   Expands a list of workstreams to include their parent workstreams.
   """
   def expand_to_parents(streams, rules) do

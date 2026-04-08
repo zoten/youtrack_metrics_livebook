@@ -8,44 +8,54 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
 
     assert has_element?(view, "#theme-toggle")
     assert has_element?(view, "#theme-dark")
-    assert has_element?(view, "#flow-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
     assert has_element?(view, "#fetch-flow-data")
     assert has_element?(view, "#reload-flow-config")
     assert has_element?(view, "#clear-flow-cache")
     assert has_element?(view, "#toggle-flow-config")
-    assert has_element?(view, "#flow-config-form input[name='config[base_url]']")
+    assert has_element?(view, "#sidebar-shared-config-form input[name='config[base_url]']")
   end
 
   test "toggles configuration panel visibility", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/flow-metrics")
 
-    assert has_element?(view, "#flow-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
 
     view
     |> element("#toggle-flow-config")
     |> render_click()
 
-    refute has_element?(view, "#flow-config-form")
+    refute has_element?(view, "#sidebar-shared-config-form")
 
     view
     |> element("#toggle-flow-config")
     |> render_click()
 
-    assert has_element?(view, "#flow-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
   end
 
   test "reads persisted config visibility from connect params", %{conn: conn} do
     conn = put_connect_params(conn, %{"config_open" => "false"})
     {:ok, view, _html} = live(conn, ~p"/flow-metrics")
 
-    refute has_element?(view, "#flow-config-form")
+    refute has_element?(view, "#sidebar-shared-config-form")
+  end
+
+  test "reads shared config from connect params", %{conn: conn} do
+    conn = put_connect_params(conn, %{"shared_config" => %{"base_query" => "project: SHARED"}})
+    {:ok, view, _html} = live(conn, ~p"/flow-metrics")
+
+    assert has_element?(
+             view,
+             "#sidebar-shared-config-form input[name='config[base_query]'][value='project: SHARED']"
+           )
   end
 
   test "shows validation error when base query is blank", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/flow-metrics")
 
     view
-    |> element("#flow-config-form")
+    |> element("#sidebar-shared-config-form")
     |> render_change(%{
       "config" => %{
         "base_url" => "https://example.youtrack.cloud",
@@ -68,7 +78,7 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
     |> element("#reload-flow-config")
     |> render_click()
 
-    assert has_element?(view, "#flow-config-form")
+    assert has_element?(view, "#sidebar-shared-config-form")
     assert has_element?(view, "#fetch-flow-data")
   end
 
