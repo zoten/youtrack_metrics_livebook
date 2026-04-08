@@ -19,6 +19,7 @@ defmodule YoutrackWeb.CardFocusLiveTest do
     {:ok, view, _html} = live(conn, ~p"/card/PROJ-42")
 
     assert has_element?(view, "#card-focus-current-issue", "PROJ-42")
+
     assert has_element?(
              view,
              "#card-focus-search-form input[name='lookup[issue_id]'][value='PROJ-42']"

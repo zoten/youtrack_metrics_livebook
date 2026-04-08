@@ -98,7 +98,12 @@ defmodule Youtrack.CardFocusTest do
     assert length(result.description_events) == 1
     assert length(result.comment_events) == 1
     assert length(result.rework_events) == 0
-    assert Enum.any?(result.time_in_state, &(&1.state == "In Progress" and &1.duration_ms == 7_000))
+
+    assert Enum.any?(
+             result.time_in_state,
+             &(&1.state == "In Progress" and &1.duration_ms == 7_000)
+           )
+
     assert hd(result.active_segments).label in ["Active", "Inactive"]
     assert hd(result.timeline_events).timestamp == 9_000
   end
@@ -164,5 +169,18 @@ defmodule Youtrack.CardFocusTest do
     assert result.metrics.inactive_time_ms == 2_000
     # Two tag events should be surfaced (add and remove)
     assert length(result.tag_events) == 2
+
+    # Active segments should have hold carved out:
+    #   Active 2_000–4_000, On Hold 4_000–6_000, Active 6_000–9_000
+    active_labels = Enum.map(result.active_segments, & &1.label)
+    assert active_labels == ["Active", "On Hold", "Active"]
+
+    [seg1, hold_seg, seg2] = result.active_segments
+    assert seg1.start_ms == 2_000
+    assert seg1.end_ms == 4_000
+    assert hold_seg.start_ms == 4_000
+    assert hold_seg.end_ms == 6_000
+    assert seg2.start_ms == 6_000
+    assert seg2.end_ms == 9_000
   end
 end

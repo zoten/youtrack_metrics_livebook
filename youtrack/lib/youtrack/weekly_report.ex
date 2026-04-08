@@ -324,8 +324,8 @@ defmodule Youtrack.WeeklyReport do
     tag_changes_in_window =
       activities
       |> Enum.filter(fn a ->
-          (get_in(a, ["field", "name"]) == "tags" or
-            get_in(a, ["category", "id"]) == "TagsCategory") and
+        (get_in(a, ["field", "name"]) == "tags" or
+           get_in(a, ["category", "id"]) == "TagsCategory") and
           in_window?(a["timestamp"], window_start_ms, window_end_ms)
       end)
       |> Enum.sort_by(& &1["timestamp"])
@@ -369,7 +369,7 @@ defmodule Youtrack.WeeklyReport do
       |> Enum.map(&normalize_description_change/1)
       |> Enum.reject(&is_nil/1)
 
-    {active_time_intervals, inactive_interruption_intervals} =
+    {active_time_intervals, inactive_interruption_intervals, hold_time_intervals} =
       if is_integer(start_ms) and is_integer(end_ms) do
         active =
           active_intervals(
@@ -382,9 +382,10 @@ defmodule Youtrack.WeeklyReport do
           )
 
         inactive = inverse_intervals(start_ms, end_ms, active)
-        {serialize_intervals(active), serialize_intervals(inactive)}
+        holds = hold_intervals(activities, hold_tags, start_ms, end_ms)
+        {serialize_intervals(active), serialize_intervals(inactive), serialize_intervals(holds)}
       else
-        {[], []}
+        {[], [], []}
       end
 
     net_active =
@@ -421,6 +422,7 @@ defmodule Youtrack.WeeklyReport do
       description_changes_in_window: description_changes_in_window,
       active_time_intervals: active_time_intervals,
       inactive_interruption_intervals: inactive_interruption_intervals,
+      hold_time_intervals: hold_time_intervals,
       cycle_time_ms: cycle_time,
       net_active_time_ms: net_active,
       description_updated_in_window: description_updated_in_window,

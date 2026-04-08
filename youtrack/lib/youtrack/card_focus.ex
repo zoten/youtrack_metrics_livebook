@@ -89,19 +89,73 @@ defmodule Youtrack.CardFocus do
 
   defp build_active_segments(summary) do
     total_ms = max(summary.cycle_time_ms || 0, 1)
+    hold_intervals = summary.hold_time_intervals
 
-    active =
-      Enum.map(summary.active_time_intervals, fn interval ->
-        build_segment(interval, total_ms, "Active", "active")
+    # Subtract hold intervals from active intervals to create true working segments
+    working_intervals =
+      summary.active_time_intervals
+      |> Enum.flat_map(&subtract_holes(&1, hold_intervals))
+
+    # Clip hold intervals to only the parts overlapping active intervals
+    hold_in_active =
+      Enum.flat_map(hold_intervals, fn hold ->
+        Enum.flat_map(summary.active_time_intervals, fn active ->
+          clip_start = max(hold.start_ms, active.start_ms)
+          clip_end = min(hold.end_ms, active.end_ms)
+
+          if clip_start < clip_end,
+            do: [%{start_ms: clip_start, end_ms: clip_end, duration_ms: clip_end - clip_start}],
+            else: []
+        end)
       end)
+
+    working = Enum.map(working_intervals, &build_segment(&1, total_ms, "Active", "active"))
+    on_hold = Enum.map(hold_in_active, &build_segment(&1, total_ms, "On Hold", "on_hold"))
 
     inactive =
       Enum.map(summary.inactive_interruption_intervals, fn interval ->
         build_segment(interval, total_ms, "Inactive", "inactive")
       end)
 
-    (active ++ inactive)
+    (working ++ on_hold ++ inactive)
     |> Enum.sort_by(& &1.start_ms)
+  end
+
+  defp subtract_holes(interval, holes) do
+    sorted_holes =
+      holes
+      |> Enum.sort_by(& &1.start_ms)
+
+    do_subtract(interval.start_ms, interval.end_ms, sorted_holes)
+  end
+
+  defp do_subtract(start_ms, end_ms, _holes) when start_ms >= end_ms, do: []
+
+  defp do_subtract(start_ms, end_ms, []) do
+    [%{start_ms: start_ms, end_ms: end_ms, duration_ms: end_ms - start_ms}]
+  end
+
+  defp do_subtract(start_ms, end_ms, [hole | rest]) do
+    hole_start = max(hole.start_ms, start_ms)
+    hole_end = min(hole.end_ms, end_ms)
+
+    cond do
+      hole_start >= end_ms ->
+        # Hole is entirely past this interval
+        [%{start_ms: start_ms, end_ms: end_ms, duration_ms: end_ms - start_ms}]
+
+      hole_end <= start_ms ->
+        # Hole is entirely before this interval
+        do_subtract(start_ms, end_ms, rest)
+
+      true ->
+        before =
+          if hole_start > start_ms,
+            do: [%{start_ms: start_ms, end_ms: hole_start, duration_ms: hole_start - start_ms}],
+            else: []
+
+        before ++ do_subtract(max(hole_end, start_ms), end_ms, rest)
+    end
   end
 
   defp build_segment(interval, total_ms, label, tone) do
@@ -133,7 +187,7 @@ defmodule Youtrack.CardFocus do
       state_events
       |> Enum.reduce({start_ms, initial_state, []}, fn activity, {cursor, current_state, acc} ->
         timestamp = activity["timestamp"]
-        next_state = List.first(extract_names(activity["added"])) || ""
+        next_state = List.first(extract_names(activity["added"])) || current_state
 
         segment = %{
           start_ms: cursor,
@@ -247,13 +301,15 @@ defmodule Youtrack.CardFocus do
          description_events,
          rework_events
        ) do
-    (state_events ++ assignee_events ++ tag_events ++ comment_events ++ description_events ++ rework_events)
+    (state_events ++
+       assignee_events ++ tag_events ++ comment_events ++ description_events ++ rework_events)
     |> Enum.sort_by(& &1.timestamp, :desc)
   end
 
   defp build_time_in_state(issue, activities, state_field) do
     end_ms = timeline_end_ms(issue)
     start_ms = issue["created"] || earliest_timestamp(activities) || end_ms
+
     state_events =
       activities
       |> Enum.filter(fn activity -> get_in(activity, ["field", "name"]) == state_field end)
@@ -270,7 +326,15 @@ defmodule Youtrack.CardFocus do
 
         acc =
           if is_binary(current_state) and is_integer(cursor) and timestamp > cursor do
-            [%{state: current_state, start_ms: cursor, end_ms: timestamp, duration_ms: timestamp - cursor} | acc]
+            [
+              %{
+                state: current_state,
+                start_ms: cursor,
+                end_ms: timestamp,
+                duration_ms: timestamp - cursor
+              }
+              | acc
+            ]
           else
             acc
           end
@@ -279,7 +343,15 @@ defmodule Youtrack.CardFocus do
       end)
       |> then(fn {cursor, current_state, acc} ->
         if is_binary(current_state) and is_integer(cursor) and end_ms > cursor do
-          [%{state: current_state, start_ms: cursor, end_ms: end_ms, duration_ms: end_ms - cursor} | acc]
+          [
+            %{
+              state: current_state,
+              start_ms: cursor,
+              end_ms: end_ms,
+              duration_ms: end_ms - cursor
+            }
+            | acc
+          ]
         else
           acc
         end
@@ -288,7 +360,9 @@ defmodule Youtrack.CardFocus do
     segments
     |> Enum.group_by(& &1.state)
     |> Enum.map(fn {state, state_segments} ->
-      duration_ms = Enum.reduce(state_segments, 0, fn segment, total -> total + segment.duration_ms end)
+      duration_ms =
+        Enum.reduce(state_segments, 0, fn segment, total -> total + segment.duration_ms end)
+
       %{state: state, duration_ms: duration_ms}
     end)
     |> Enum.sort_by(& &1.duration_ms, :desc)
@@ -332,7 +406,7 @@ defmodule Youtrack.CardFocus do
   end
 
   defp timeline_end_ms(issue) do
-    issue["resolved"] || issue["updated"] || System.system_time(:millisecond)
+    issue["resolved"] || System.system_time(:millisecond)
   end
 
   defp ratio_pct(_part, nil), do: nil

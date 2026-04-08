@@ -423,8 +423,8 @@ defmodule YoutrackWeb.CardFocusLive do
 
                 <.chart_card
                   id="card-focus-state-gantt"
-                  title="Active and inactive windows"
-                  description="Cycle timeline with segment durations and state boundaries."
+                  title="State & activity timeline"
+                  description="Gantt view of state transitions, active periods, and interruptions."
                   spec={state_timeline_spec(@card_data)}
                   class="h-80"
                   wrapper_class="p-4"
@@ -749,13 +749,13 @@ defmodule YoutrackWeb.CardFocusLive do
   defp segment_style(width_pct), do: "width: #{max(width_pct, 4.0)}%"
 
   defp state_timeline_spec(card_data) do
-    values =
+    # State segments — one color per state
+    state_values =
       card_data.state_segments
-      |> Enum.with_index(1)
-      |> Enum.map(fn {segment, idx} ->
+      |> Enum.map(fn segment ->
         %{
-          slot: "#{idx}",
-          state: segment.state,
+          track: "State",
+          label: segment.state,
           start: to_iso8601(segment.start_ms),
           end: to_iso8601(segment.end_ms),
           duration_hours: Float.round(segment.duration_ms / 3_600_000, 2)
@@ -767,30 +767,84 @@ defmodule YoutrackWeb.CardFocusLive do
       |> Enum.map(& &1.state)
       |> Enum.uniq()
 
-    color_map = state_color_map(unique_states)
+    state_color_map_result = state_color_map(unique_states)
+
+    # Activity segments — Active / Inactive / On Hold
+    activity_values =
+      card_data.active_segments
+      |> Enum.map(fn segment ->
+        %{
+          track: "Activity",
+          label: segment.label,
+          start: to_iso8601(segment.start_ms),
+          end: to_iso8601(segment.end_ms),
+          duration_hours: Float.round(segment.duration_ms / 3_600_000, 2)
+        }
+      end)
+
+    activity_domain = activity_values |> Enum.map(& &1.label) |> Enum.uniq() |> Enum.sort()
+
+    activity_palette = %{
+      "Active" => "#10b981",
+      "Inactive" => "#94a3b8",
+      "On Hold" => "#ef4444"
+    }
+
+    activity_range = Enum.map(activity_domain, &Map.get(activity_palette, &1, "#cccccc"))
+
+    shared_tooltip = [
+      %{"field" => "label", "type" => "nominal", "title" => "Label"},
+      %{"field" => "start", "type" => "temporal", "title" => "Start", "format" => "%b %d %H:%M"},
+      %{"field" => "end", "type" => "temporal", "title" => "End", "format" => "%b %d %H:%M"},
+      %{"field" => "duration_hours", "type" => "quantitative", "title" => "Duration (h)"}
+    ]
 
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
-      "data" => %{"values" => values},
-      "mark" => %{"type" => "bar", "cornerRadius" => 3},
-      "height" => 220,
-      "encoding" => %{
-        "y" => %{"field" => "slot", "type" => "ordinal", "axis" => nil},
-        "x" => %{"field" => "start", "type" => "temporal", "title" => "Timeline"},
-        "x2" => %{"field" => "end"},
-        "color" => %{
-          "field" => "state",
-          "type" => "nominal",
-          "scale" => %{"domain" => unique_states, "range" => Enum.map(unique_states, &color_map[&1])},
-          "legend" => %{"title" => "State"}
+      "height" => 160,
+      "layer" => [
+        # Layer 1: State track
+        %{
+          "data" => %{"values" => state_values},
+          "mark" => %{"type" => "bar", "cornerRadius" => 3, "height" => %{"band" => 0.75}},
+          "encoding" => %{
+            "y" => %{"field" => "track", "type" => "nominal", "axis" => %{"title" => ""}},
+            "x" => %{"field" => "start", "type" => "temporal", "title" => "Timeline"},
+            "x2" => %{"field" => "end"},
+            "color" => %{
+              "field" => "label",
+              "type" => "nominal",
+              "scale" => %{
+                "domain" => unique_states,
+                "range" => Enum.map(unique_states, &state_color_map_result[&1])
+              },
+              "legend" => %{"title" => "State"}
+            },
+            "tooltip" => shared_tooltip
+          }
         },
-        "tooltip" => [
-          %{"field" => "state", "type" => "nominal", "title" => "State"},
-          %{"field" => "start", "type" => "temporal", "title" => "Start"},
-          %{"field" => "end", "type" => "temporal", "title" => "End"},
-          %{"field" => "duration_hours", "type" => "quantitative", "title" => "Duration (h)"}
-        ]
-      }
+        # Layer 2: Activity track
+        %{
+          "data" => %{"values" => activity_values},
+          "mark" => %{"type" => "bar", "cornerRadius" => 3, "height" => %{"band" => 0.75}},
+          "encoding" => %{
+            "y" => %{"field" => "track", "type" => "nominal", "axis" => %{"title" => ""}},
+            "x" => %{"field" => "start", "type" => "temporal", "title" => "Timeline"},
+            "x2" => %{"field" => "end"},
+            "color" => %{
+              "field" => "label",
+              "type" => "nominal",
+              "scale" => %{
+                "domain" => activity_domain,
+                "range" => activity_range
+              },
+              "legend" => %{"title" => "Activity"}
+            },
+            "tooltip" => shared_tooltip
+          }
+        }
+      ],
+      "resolve" => %{"scale" => %{"color" => "independent"}}
     }
   end
 
@@ -811,8 +865,16 @@ defmodule YoutrackWeb.CardFocusLive do
     }
 
     generated_colors = [
-      "#0ea5e9", "#06b6d4", "#10b981", "#84cc16", "#eab308",
-      "#f59e0b", "#f97316", "#ef4444", "#e11d48", "#9333ea"
+      "#0ea5e9",
+      "#06b6d4",
+      "#10b981",
+      "#84cc16",
+      "#eab308",
+      "#f59e0b",
+      "#f97316",
+      "#ef4444",
+      "#e11d48",
+      "#9333ea"
     ]
 
     Enum.reduce(states, {%{}, 0}, fn state, {acc, color_idx} ->
