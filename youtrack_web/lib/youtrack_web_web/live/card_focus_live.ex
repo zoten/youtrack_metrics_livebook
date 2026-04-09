@@ -384,9 +384,18 @@ defmodule YoutrackWeb.CardFocusLive do
                     {@card_data.issue.state || "Unknown state"}
                   </p>
                 </div>
-                <span class="metrics-pill metrics-pill-success px-3 py-2 text-xs uppercase tracking-[0.16em]">
-                  {@card_data.issue.status}
-                </span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="metrics-pill metrics-pill-success px-3 py-2 text-xs uppercase tracking-[0.16em]">
+                    {@card_data.issue.status}
+                  </span>
+                  <.link
+                    id="card-focus-compare-link"
+                    navigate={~p"/compare?ids=#{@card_data.issue.issue_key}"}
+                    class="metrics-pill metrics-pill-muted px-3 py-2 text-xs uppercase tracking-[0.16em] hover:opacity-80 transition-opacity"
+                  >
+                    Compare
+                  </.link>
+                </div>
               </div>
 
               <div class="flex flex-wrap gap-2">

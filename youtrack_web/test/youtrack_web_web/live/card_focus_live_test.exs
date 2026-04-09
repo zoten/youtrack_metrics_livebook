@@ -93,5 +93,7 @@ defmodule YoutrackWeb.CardFocusLiveTest do
 
     assert has_element?(view, "#card-focus-state-gantt")
     assert has_element?(view, "#card-focus-state-gantt-card")
+    assert has_element?(view, "#card-focus-compare-link")
+    assert has_element?(view, "a[href='/compare?ids=PROJ-88']")
   end
 end

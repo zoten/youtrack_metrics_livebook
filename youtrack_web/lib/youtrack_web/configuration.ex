@@ -41,7 +41,8 @@ defmodule YoutrackWeb.Configuration do
       label: "Card Focus",
       stage: "In progress",
       visuals: "Issue deep-dive",
-      description: "Inspect one card with a dedicated timeline, history events, and delivery signals.",
+      description:
+        "Inspect one card with a dedicated timeline, history events, and delivery signals.",
       highlights: ["State timeline", "Cycle vs net active", "Comments", "Tags"]
     },
     %{
@@ -51,6 +52,15 @@ defmodule YoutrackWeb.Configuration do
       visuals: "Configuration",
       description: "Edit workstream rules, classify untracked slugs, review match coverage.",
       highlights: ["YAML editor", "Slug classifier", "Match coverage", "Auto-save"]
+    },
+    %{
+      id: "comparison",
+      label: "Card Comparison",
+      stage: "In progress",
+      visuals: "Side-by-side timelines",
+      description:
+        "Compare 2-4 issues side by side with aligned Gantt charts and shared event timelines.",
+      highlights: ["Shared Gantt", "Event timelines", "Metric comparison", "Side-by-side"]
     }
   ]
 

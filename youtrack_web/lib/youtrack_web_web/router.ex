@@ -20,6 +20,7 @@ defmodule YoutrackWeb.Router do
     live("/", DashboardLive)
     live("/card", CardFocusLive)
     live("/card/:issue_id", CardFocusLive)
+    live("/compare", ComparisonLive)
     live("/flow-metrics", FlowMetricsLive)
     live("/gantt", GanttLive)
     live("/pairing", PairingLive)
