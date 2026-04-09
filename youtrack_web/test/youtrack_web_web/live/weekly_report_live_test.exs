@@ -110,7 +110,7 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
     assert has_element?(view, "#weekly-weekly-card-PROJ-7")
   end
 
-  test "shows download buttons in copy tab with report data", %{conn: conn} do
+  test "shows copy and download buttons in copy tab with report data", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/weekly-report")
 
     report_data = %{
@@ -130,9 +130,46 @@ defmodule YoutrackWeb.WeeklyReportLiveTest do
     |> element("button[phx-value-tab='copy']")
     |> render_click()
 
-    # Verify all download buttons exist
+    assert has_element?(view, "#copy-weekly-json")
+    assert has_element?(view, "#copy-daily-json")
+    assert has_element?(view, "#copy-full-json")
+
     assert has_element?(view, "#download-weekly-json")
     assert has_element?(view, "#download-daily-json")
     assert has_element?(view, "#download-full-json")
+  end
+
+  test "shows full prompt preview and llm copy buttons", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/weekly-report")
+
+    report_data = %{
+      report_payload: %{},
+      report_json: "{\"type\": \"full\", \"details\": \"payload\"}",
+      weekly_json: "{\"type\": \"weekly\"}",
+      daily_json: "{\"type\": \"daily\"}",
+      fetch_cache_state: :hit,
+      summary_rows: [%{window: "Weekly", issues: 1, completed: 1}],
+      daily_payload: %{issues: [%{id: "PROJ-3"}]},
+      weekly_payload: %{issues: [%{id: "PROJ-7"}]}
+    }
+
+    send(view.pid, {make_ref(), {:ok, {:report, report_data}}})
+
+    view
+    |> element("button[phx-value-tab='llm']")
+    |> render_click()
+
+    view
+    |> element("#generate-prompt")
+    |> render_click()
+
+    assert has_element?(view, "#copy-prompt-preview")
+    assert has_element?(view, "pre", "\"details\": \"payload\"")
+    refute has_element?(view, "pre", "... (truncated)")
+
+    send(view.pid, {make_ref(), {:ok, {:llm, "LLM output text"}}})
+
+    assert has_element?(view, "#copy-llm-response")
+    assert has_element?(view, "pre", "LLM output text")
   end
 end

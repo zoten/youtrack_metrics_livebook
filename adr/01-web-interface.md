@@ -22,6 +22,7 @@
   - LocalStorage bridge implemented for shared config persistence across page switches/reconnects
   - Per-page duplicated shared forms removed from section pages
   - Weekly report keeps report+LLM fields local to the page form (not shared globally)
+  - Weekly report Copy/Download tab now exposes daily, weekly, and full payload copy actions alongside the existing downloads
   - LiveView tests updated for all affected pages
 - Phase 3.5 Card Focus: in progress
   - New `/card` and `/card/:issue_id` LiveView routes added for issue-level deep dives

@@ -253,6 +253,21 @@ defmodule YoutrackWeb.WeeklyReportLive do
   end
 
   @impl true
+  def handle_event("copy-weekly-json", _params, socket), do: copy_json(socket, :weekly)
+
+  @impl true
+  def handle_event("copy-daily-json", _params, socket), do: copy_json(socket, :daily)
+
+  @impl true
+  def handle_event("copy-full-json", _params, socket), do: copy_json(socket, :full)
+
+  @impl true
+  def handle_event("copy-prompt-preview", _params, socket), do: copy_text(socket, :prompt_preview)
+
+  @impl true
+  def handle_event("copy-llm-response", _params, socket), do: copy_text(socket, :llm_response)
+
+  @impl true
   def handle_info({ref, {:ok, {:report, report_data}}}, socket) do
     Process.demonitor(ref, [:flush])
 
@@ -541,7 +556,8 @@ defmodule YoutrackWeb.WeeklyReportLive do
 
     weekly_payload = %{
       window: %{start: Date.to_iso8601(week_start), end: Date.to_iso8601(week_end)},
-      metrics: WeeklyReportSummary.summary_metrics(weekly_summaries, weekly_start_ms, weekly_end_ms),
+      metrics:
+        WeeklyReportSummary.summary_metrics(weekly_summaries, weekly_start_ms, weekly_end_ms),
       issues: weekly_summaries
     }
 
@@ -1096,30 +1112,65 @@ defmodule YoutrackWeb.WeeklyReportLive do
           <%= if @active_tab == "copy" do %>
             <section id="download-section" phx-hook=".DownloadJson" class="metrics-card rounded-4xl p-6 space-y-4">
               <h3 class="metrics-title text-xl font-semibold">Copy / Download</h3>
-              <button
-                id="download-weekly-json"
-                type="button"
-                phx-click="download-weekly-json"
-                class="metrics-button metrics-button-ghost text-sm"
-              >
-                Download weekly JSON
-              </button>
-              <button
-                id="download-daily-json"
-                type="button"
-                phx-click="download-daily-json"
-                class="metrics-button metrics-button-ghost text-sm"
-              >
-                Download daily JSON
-              </button>
-              <button
-                id="download-full-json"
-                type="button"
-                phx-click="download-full-json"
-                class="metrics-button metrics-button-ghost text-sm"
-              >
-                Download full JSON
-              </button>
+              <div class="grid gap-4 md:grid-cols-3">
+                <div class="metrics-subtle-panel rounded-2xl p-4 space-y-3">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Daily</p>
+                  <button
+                    id="copy-daily-json"
+                    type="button"
+                    phx-click="copy-daily-json"
+                    class="metrics-button metrics-button-ghost w-full text-sm"
+                  >
+                    Copy daily JSON
+                  </button>
+                  <button
+                    id="download-daily-json"
+                    type="button"
+                    phx-click="download-daily-json"
+                    class="metrics-button metrics-button-ghost w-full text-sm"
+                  >
+                    Download daily JSON
+                  </button>
+                </div>
+                <div class="metrics-subtle-panel rounded-2xl p-4 space-y-3">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Weekly</p>
+                  <button
+                    id="copy-weekly-json"
+                    type="button"
+                    phx-click="copy-weekly-json"
+                    class="metrics-button metrics-button-ghost w-full text-sm"
+                  >
+                    Copy weekly JSON
+                  </button>
+                  <button
+                    id="download-weekly-json"
+                    type="button"
+                    phx-click="download-weekly-json"
+                    class="metrics-button metrics-button-ghost w-full text-sm"
+                  >
+                    Download weekly JSON
+                  </button>
+                </div>
+                <div class="metrics-subtle-panel rounded-2xl p-4 space-y-3">
+                  <p class="metrics-copy text-xs uppercase tracking-[0.24em]">Full</p>
+                  <button
+                    id="copy-full-json"
+                    type="button"
+                    phx-click="copy-full-json"
+                    class="metrics-button metrics-button-ghost w-full text-sm"
+                  >
+                    Copy full JSON
+                  </button>
+                  <button
+                    id="download-full-json"
+                    type="button"
+                    phx-click="download-full-json"
+                    class="metrics-button metrics-button-ghost w-full text-sm"
+                  >
+                    Download full JSON
+                  </button>
+                </div>
+              </div>
             </section>
           <% end %>
           <script :type={Phoenix.LiveView.ColocatedHook} name=".DownloadJson">
@@ -1127,6 +1178,10 @@ defmodule YoutrackWeb.WeeklyReportLive do
               mounted() {
                 this.handleEvent('download_json', (data) => {
                   this.downloadJson(data.content, data.filename);
+                });
+
+                this.handleEvent('copy_json', (data) => {
+                  this.copyJson(data.content);
                 });
               },
               downloadJson(content, filename) {
@@ -1139,12 +1194,49 @@ defmodule YoutrackWeb.WeeklyReportLive do
                 link.click();
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
+              },
+              async copyJson(content) {
+                if (navigator.clipboard?.writeText) {
+                  await navigator.clipboard.writeText(content);
+                  this.showCopiedNotice();
+                  return;
+                }
+
+                const textarea = document.createElement('textarea');
+                textarea.value = content;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                this.showCopiedNotice();
+              },
+              showCopiedNotice() {
+                const existing = document.getElementById('weekly-copy-toast');
+                if (existing) {
+                  existing.remove();
+                }
+
+                const toast = document.createElement('div');
+                toast.id = 'weekly-copy-toast';
+                toast.textContent = 'Copied';
+                toast.className = 'fixed bottom-6 right-6 z-50 rounded-xl bg-[color:var(--metrics-surface)] px-4 py-2 text-sm font-semibold shadow-lg border border-[color:color-mix(in_oklab,var(--metrics-text)_18%,transparent)]';
+                document.body.appendChild(toast);
+
+                window.setTimeout(() => {
+                  const current = document.getElementById('weekly-copy-toast');
+                  if (current) {
+                    current.remove();
+                  }
+                }, 1400);
               }
             }
           </script>
 
           <%= if @active_tab == "llm" do %>
-            <section class="metrics-card rounded-4xl p-6 space-y-4">
+            <section id="weekly-llm-section" phx-hook=".DownloadJson" class="metrics-card rounded-4xl p-6 space-y-4">
               <h3 class="metrics-title text-xl font-semibold">LLM Summary</h3>
               <div class="flex gap-2">
                 <button
@@ -1174,12 +1266,32 @@ defmodule YoutrackWeb.WeeklyReportLive do
               <% end %>
 
               <%= if @prompt_preview do %>
+                <div class="flex justify-end">
+                  <button
+                    id="copy-prompt-preview"
+                    type="button"
+                    phx-click="copy-prompt-preview"
+                    class="metrics-button metrics-button-ghost text-sm"
+                  >
+                    Copy prompt + JSON
+                  </button>
+                </div>
                 <div class="metrics-code metrics-code-panel overflow-x-auto rounded-3xl p-4 text-xs">
-                  <pre>{truncate(@prompt_preview, 4000)}</pre>
+                  <pre>{@prompt_preview}</pre>
                 </div>
               <% end %>
 
               <%= if @llm_response do %>
+                <div class="flex justify-end">
+                  <button
+                    id="copy-llm-response"
+                    type="button"
+                    phx-click="copy-llm-response"
+                    class="metrics-button metrics-button-ghost text-sm"
+                  >
+                    Copy LLM response
+                  </button>
+                </div>
                 <div class="metrics-success-panel rounded-2xl p-4 text-sm">
                   <pre>{@llm_response}</pre>
                 </div>
@@ -1284,6 +1396,31 @@ defmodule YoutrackWeb.WeeklyReportLive do
   defp filter_by_project_prefix(issues, prefix) do
     Enum.filter(issues, fn issue -> String.starts_with?(issue["idReadable"] || "", prefix) end)
   end
+
+  defp copy_json(socket, variant) do
+    case socket.assigns.report_data do
+      nil ->
+        {:noreply, assign(socket, :fetch_error, "Build report first")}
+
+      report_data ->
+        {:noreply,
+         push_event(socket, "copy_json", %{content: report_json_variant(report_data, variant)})}
+    end
+  end
+
+  defp copy_text(socket, key) do
+    case Map.get(socket.assigns, key) do
+      value when is_binary(value) and value != "" ->
+        {:noreply, push_event(socket, "copy_json", %{content: value})}
+
+      _ ->
+        {:noreply, assign(socket, :fetch_error, "Nothing to copy yet")}
+    end
+  end
+
+  defp report_json_variant(report_data, :daily), do: report_data.daily_json
+  defp report_json_variant(report_data, :weekly), do: report_data.weekly_json
+  defp report_json_variant(report_data, :full), do: report_data.report_json
 
   defp csv_list(nil), do: []
 
