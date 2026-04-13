@@ -161,6 +161,84 @@ defmodule Youtrack.RotationTest do
     end
   end
 
+  describe "person_stream_timeline/1" do
+    test "sorts data by person, stream, and week for faceted charts" do
+      items = [
+        wi("bob", "Frontend", @week2, "P-1"),
+        wi("alice", "Backend", @week2, "P-2"),
+        wi("alice", "Backend", @week1, "P-3"),
+        wi("alice", "Frontend", @week1, "P-4")
+      ]
+
+      result = Rotation.person_stream_timeline(items)
+
+      assert Enum.map(result, &{&1.person, &1.stream, &1.week}) == [
+               {"alice", "Backend", "2024-01-01"},
+               {"alice", "Backend", "2024-01-08"},
+               {"alice", "Frontend", "2024-01-01"},
+               {"bob", "Frontend", "2024-01-08"}
+             ]
+    end
+  end
+
+  describe "stream_transition_graph/1" do
+    test "builds aggregated transitions from all streams in consecutive weeks" do
+      items = [
+        wi("alice", "Backend", @week1, "P-1"),
+        wi("alice", "Frontend", @week1, "P-2"),
+        wi("alice", "Support", @week2, "P-3"),
+        wi("alice", "Frontend", @week2, "P-4"),
+        wi("bob", "Backend", @week1, "P-5"),
+        wi("bob", "Support", @week2, "P-6")
+      ]
+
+      result = Rotation.stream_transition_graph(items)
+
+      assert result["nodes"] == [
+               %{"name" => "Backend"},
+               %{"name" => "Frontend"},
+               %{"name" => "Support"}
+             ]
+
+      assert result["links"] == [
+               %{
+                 "people" => "alice",
+                 "people_count" => 1,
+                 "source" => "Backend",
+                 "target" => "Frontend",
+                 "value" => 1
+               },
+               %{
+                 "people" => "alice, bob",
+                 "people_count" => 2,
+                 "source" => "Backend",
+                 "target" => "Support",
+                 "value" => 2
+               },
+               %{
+                 "people" => "alice",
+                 "people_count" => 1,
+                 "source" => "Frontend",
+                 "target" => "Support",
+                 "value" => 1
+               }
+             ]
+    end
+
+    test "ignores non-consecutive calendar weeks and self-links" do
+      items = [
+        wi("alice", "Backend", @week1, "P-1"),
+        wi("alice", "Backend", @week2, "P-2"),
+        wi("alice", "Backend", @week2, "P-4"),
+        wi("alice", "Frontend", @week4, "P-3")
+      ]
+
+      result = Rotation.stream_transition_graph(items)
+
+      assert result["links"] == []
+    end
+  end
+
   describe "stream_tenure/1" do
     test "computes tenure per person per stream" do
       items = [

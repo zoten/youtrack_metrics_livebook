@@ -979,31 +979,85 @@ else
 end
 ```
 
-### Workstream Heatmap per Person per Week
+### Person Timelines by Week
 
-A heatmap showing which streams each person worked on each week — reveals focus, fragmentation, and rotation patterns at a glance.
+Small multiples showing one timeline per teammate. Each row inside a panel is a touched workstream, making parallel activity and context switching easier to compare at a glance.
 
 ```elixir
-pws_data = Rotation.person_week_stream(work_items)
+timeline_data = Rotation.person_stream_timeline(work_items)
 
-if length(pws_data) > 0 do
-  Vl.new(width: 700, height: 400, title: "Person × Week: Workstream Activity")
-  |> Vl.data_from_values(pws_data)
-  |> Vl.mark(:rect, tooltip: true)
-  |> Vl.encode_field(:x, "week", type: :temporal, title: "Week")
-  |> Vl.encode_field(:y, "person", type: :nominal, title: "Person")
-  |> Vl.encode_field(:color, "stream", type: :nominal, title: "Workstream")
-  |> Vl.encode(:tooltip, [
-    [field: "person", type: :nominal, title: "Person"],
-    [field: "week", type: :temporal, title: "Week"],
-    [field: "stream", type: :nominal, title: "Stream"],
-    [field: "item_count", type: :quantitative, title: "Items"]
-  ])
-  |> Kino.VegaLite.new()
+timeline_spec = %{
+  "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+  "title" => %{
+    "text" => "Person Timelines by Week",
+    "subtitle" => "One panel per teammate; rows show streams touched each week"
+  },
+  "data" => %{"values" => timeline_data},
+  "facet" => %{
+    "row" => %{
+      "field" => "person",
+      "type" => "nominal",
+      "title" => nil,
+      "sort" => "ascending",
+      "header" => %{
+        "labelFontSize" => 12,
+        "labelFontWeight" => "bold",
+        "labelPadding" => 8
+      }
+    }
+  },
+  "spec" => %{
+    "width" => 700,
+    "height" => %{"step" => 24},
+    "mark" => %{
+      "type" => "rect",
+      "tooltip" => true,
+      "cornerRadius" => 4,
+      "stroke" => "white",
+      "strokeWidth" => 1
+    },
+    "encoding" => %{
+      "x" => %{
+        "field" => "week",
+        "timeUnit" => "yearweek",
+        "type" => "ordinal",
+        "title" => "Week",
+        "axis" => %{"labelAngle" => 0, "labelLimit" => 120}
+      },
+      "y" => %{
+        "field" => "stream",
+        "type" => "nominal",
+        "title" => "Workstream",
+        "sort" => "ascending",
+        "axis" => %{"labelLimit" => 180}
+      },
+      "color" => %{
+        "field" => "item_count",
+        "type" => "quantitative",
+        "title" => "Items",
+        "scale" => %{"scheme" => "blues"}
+      },
+      "tooltip" => [
+        %{"field" => "person", "type" => "nominal", "title" => "Person"},
+        %{"field" => "stream", "type" => "nominal", "title" => "Workstream"},
+        %{"field" => "week", "type" => "temporal", "title" => "Week"},
+        %{"field" => "item_count", "type" => "quantitative", "title" => "Items"}
+      ]
+    }
+  },
+  "resolve" => %{"scale" => %{"y" => "independent"}},
+  "spacing" => 10,
+  "config" => %{"view" => %{"stroke" => nil}}
+}
+
+if length(timeline_data) > 0 do
+  Kino.VegaLite.new(timeline_spec)
 else
-  Kino.Markdown.new("*No data for workstream heatmap.*")
+  Kino.Markdown.new("*No data for person timelines.*")
 end
 ```
+
+The web dashboard adds a secondary Sankey that summarizes consecutive-week transitions across all touched streams.
 
 ### Stream Tenure by Person
 

@@ -24,6 +24,11 @@
   - Weekly report keeps report+LLM fields local to the page form (not shared globally)
   - Weekly report Copy/Download tab now exposes daily, weekly, and full payload copy actions alongside the existing downloads
   - LiveView tests updated for all affected pages
+- Phase 3.1 Flow Metrics rotation visualization: completed (2026-04-13)
+  - Replaced the old single Person × Week heatmap with faceted per-person timelines so parallel streams and switching are directly comparable.
+  - Added a secondary Sankey chart summarizing consecutive-week transitions across all streams touched.
+  - Kept the existing stream-tenure view as supporting context, rather than the primary rotation visualization.
+  - Upgraded the chart renderer path to support full Vega specs in addition to Vega-Lite.
 - Phase 3.5 Card Focus: in progress
   - New `/card` and `/card/:issue_id` LiveView routes added for issue-level deep dives
   - Card page reuses shared config/sidebar patterns instead of adding a page-local fetch form

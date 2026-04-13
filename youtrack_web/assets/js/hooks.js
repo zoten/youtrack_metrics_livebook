@@ -7,6 +7,7 @@ const resolvedVegaTheme = () => {
 
 export default {
     mounted() {
+        console.log(`[VegaLite Hook] mounted for chart #${this.el.id}`)
         this.render()
         this.handleEvent("update_spec", _data => this.render())
 
@@ -34,22 +35,33 @@ export default {
     },
 
     render() {
+        console.log(`[VegaLite Hook] render called for chart #${this.el.id}`)
         const spec = this.el.getAttribute("data-spec")
         if (!spec) {
-            console.warn("No data-spec attribute found on chart element")
+            console.warn(`[VegaLite Hook] No data-spec attribute on #${this.el.id}`)
             return
         }
 
         try {
+            console.log(`[VegaLite Hook] Parsing spec for #${this.el.id}`)
             const specObj = JSON.parse(spec)
-            // Force responsive width so charts fill their container.
-            // For faceted specs (with nested "spec"), set width inside the nested spec.
-            if (specObj.spec && (specObj.facet || specObj.repeat)) {
-                if (specObj.spec.width !== "container") {
-                    specObj.spec.width = "container"
+            const schema = specObj.$schema || ""
+            const isVegaLite = schema.includes("vega-lite")
+
+            console.log(`[VegaLite Hook] Schema: ${schema}, isVegaLite: ${isVegaLite}`)
+
+            // Force responsive width for Vega-Lite specs so charts fill their container.
+            // Full Vega specs may use absolute coordinates, so keep their authored width.
+            if (isVegaLite) {
+                if (specObj.spec && (specObj.facet || specObj.repeat)) {
+                    if (specObj.spec.width == null) {
+                        specObj.spec.width = "container"
+                    }
+                } else {
+                    if (specObj.width == null) {
+                        specObj.width = "container"
+                    }
                 }
-            } else {
-                specObj.width = "container"
             }
             if (specObj.autosize == null) {
                 specObj.autosize = { type: "fit", contains: "padding" }
@@ -65,14 +77,17 @@ export default {
                 theme: resolvedVegaTheme()
             }
 
+            console.log(`[VegaLite Hook] Calling vegaEmbed for #${this.el.id}`)
             vegaEmbed.default(this.el, specObj, options)
-                .then(_result => { })
+                .then(_result => {
+                    console.log(`[VegaLite Hook] Successfully rendered chart #${this.el.id}`)
+                })
                 .catch(error => {
-                    console.error("Error rendering Vega-Lite spec:", error)
+                    console.error(`[VegaLite Hook] Error rendering chart #${this.el.id}:`, error)
                     this.el.innerHTML = `<div class="text-red-500 p-4">Error rendering chart: ${error.message}</div>`
                 })
         } catch (error) {
-            console.error("Invalid JSON spec:", error)
+            console.error(`[VegaLite Hook] JSON parse error for #${this.el.id}:`, error)
             this.el.innerHTML = `<div class="text-red-500 p-4">Invalid chart specification</div>`
         }
     }

@@ -21,6 +21,7 @@ defmodule YoutrackWeb.Charts.FlowMetricsTest do
              :rotation_stream_tenure,
              :rotation_switches,
              :rotation_tenure,
+             :rotation_transition_sankey,
              :throughput,
              :throughput_by_person,
              :unplanned_by_person,
@@ -46,6 +47,19 @@ defmodule YoutrackWeb.Charts.FlowMetricsTest do
     assert chart_specs.context_switch_heatmap["encoding"]["x"]["field"] == "week"
     assert chart_specs.context_switch_heatmap["encoding"]["y"]["field"] == "person"
 
+    assert length(chart_specs.rotation_person_stream["vconcat"]) == 1
+    assert hd(chart_specs.rotation_person_stream["vconcat"])["encoding"]["y"]["field"] == "stream"
+    assert hd(chart_specs.rotation_person_stream["vconcat"])["mark"]["type"] == "rect"
+
+    assert chart_specs.rotation_transition_sankey["$schema"] ==
+             "https://vega.github.io/schema/vega/v5.json"
+
+    assert Enum.map(chart_specs.rotation_transition_sankey["marks"], & &1["type"]) == [
+             "path",
+             "rect",
+             "text"
+           ]
+
     assert chart_specs.cycle_vs_net_active["transform"] == [
              %{"fold" => ["cycle_days", "net_active_days"], "as" => ["metric", "days"]}
            ]
@@ -70,9 +84,17 @@ defmodule YoutrackWeb.Charts.FlowMetricsTest do
     %{
       throughput_by_week: [%{week: "2024-06-03", completed: 4}],
       throughput_by_person: [%{person: "Alice", completed: 3}],
-      cycle_time_data: [%{issue_id: "PROJ-1", person: "Alice", stream: "Backend", cycle_days: 4.5}],
+      cycle_time_data: [
+        %{issue_id: "PROJ-1", person: "Alice", stream: "Backend", cycle_days: 4.5}
+      ],
       net_active_data: [
-        %{issue_id: "PROJ-1", person: "Alice", stream: "Backend", cycle_days: 4.5, net_active_days: 3.0}
+        %{
+          issue_id: "PROJ-1",
+          person: "Alice",
+          stream: "Backend",
+          cycle_days: 4.5,
+          net_active_days: 3.0
+        }
       ],
       wip_by_person: [%{person: "Alice", wip: 2}],
       wip_by_stream: [%{stream: "Backend", wip: 2}],
@@ -81,7 +103,22 @@ defmodule YoutrackWeb.Charts.FlowMetricsTest do
       bus_factor_data: [%{stream: "Backend", bus_factor: 2, people: "alice,bob", total_items: 4}],
       long_running: [%{issue_id: "PROJ-9", person: "Alice", stream: "Backend", age_days: 12.0}],
       rotation_metrics: [%{person: "Alice", switches: 1, avg_tenure_weeks: 2.5}],
-      rotation_person_stream: [%{person: "Alice", week: "2024-06-03", stream: "Backend"}],
+      rotation_person_stream: [
+        %{person: "Alice", week: "2024-06-03", stream: "Backend", item_count: 2},
+        %{person: "Alice", week: "2024-06-10", stream: "Frontend", item_count: 1}
+      ],
+      rotation_transition_sankey: %{
+        "nodes" => [%{"name" => "Backend"}, %{"name" => "Frontend"}],
+        "links" => [
+          %{
+            "source" => "Backend",
+            "target" => "Frontend",
+            "value" => 2,
+            "people" => "Alice, Bob",
+            "people_count" => 2
+          }
+        ]
+      },
       stream_tenure: [%{person: "Alice", stream: "Backend", total_weeks: 3}],
       rework_by_stream: [%{stream: "Backend", rework_issues: 1, total_reopenings: 2}],
       unplanned_by_stream: [%{stream: "Backend", unplanned: 1}],

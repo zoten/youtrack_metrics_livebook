@@ -123,6 +123,74 @@ defmodule Youtrack.Rotation do
   end
 
   @doc """
+  Computes data for a faceted person timeline.
+
+  Returns a flat list of maps with `:person`, `:week`, `:stream`, and `:item_count`,
+  sorted for deterministic chart rendering.
+  """
+  def person_stream_timeline(work_items) do
+    person_week_stream(work_items)
+    |> Enum.sort_by(&{&1.person, &1.stream, &1.week})
+  end
+
+  @doc """
+  Computes consecutive-week transitions across all streams touched.
+
+  For each person, adjacent active weeks are compared using the distinct streams touched
+  in each week. Every source/target pair across the two weeks becomes a transition,
+  excluding self-links. Returns `%{nodes: [...], links: [...]}` for Sankey-like charts.
+  """
+  def stream_transition_graph(work_items) do
+    timelines = timeline_by_person(work_items)
+
+    link_index =
+      timelines
+      |> Enum.flat_map(fn {person, weekly} ->
+        weekly
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.flat_map(fn [previous_week, current_week] ->
+          if Date.diff(current_week.week, previous_week.week) == 7 do
+            build_transition_pairs(person, previous_week, current_week)
+          else
+            []
+          end
+        end)
+      end)
+      |> Enum.reduce(%{}, fn %{source: source, target: target, person: person}, acc ->
+        key = {source, target}
+
+        Map.update(acc, key, MapSet.new([person]), fn people ->
+          MapSet.put(people, person)
+        end)
+      end)
+
+    nodes =
+      link_index
+      |> Map.keys()
+      |> Enum.flat_map(fn {source, target} -> [source, target] end)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(fn stream -> %{"name" => stream} end)
+
+    links =
+      link_index
+      |> Enum.sort_by(fn {{source, target}, _people} -> {source, target} end)
+      |> Enum.map(fn {{source, target}, people} ->
+        people_list = people |> MapSet.to_list() |> Enum.sort()
+
+        %{
+          "source" => source,
+          "target" => target,
+          "value" => length(people_list),
+          "people" => Enum.join(people_list, ", "),
+          "people_count" => length(people_list)
+        }
+      end)
+
+    %{"nodes" => nodes, "links" => links}
+  end
+
+  @doc """
   Computes stream-level tenure statistics.
 
   Returns a list of maps with `:person`, `:stream`, `:total_weeks`, `:stints`
@@ -195,5 +263,18 @@ defmodule Youtrack.Rotation do
     |> Enum.chunk_by(& &1)
     |> Enum.map(&hd/1)
     |> Enum.join(" → ")
+  end
+
+  defp build_transition_pairs(person, previous_week, current_week) do
+    previous_streams = Enum.sort(previous_week.all_streams)
+    current_streams = Enum.sort(current_week.all_streams)
+
+    previous_streams
+    |> Enum.flat_map(fn source ->
+      current_streams
+      |> Enum.reject(&(&1 == source))
+      |> Enum.map(fn target -> %{source: source, target: target, person: person} end)
+    end)
+    |> Enum.uniq_by(&{&1.source, &1.target, &1.person})
   end
 end

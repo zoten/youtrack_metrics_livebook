@@ -284,7 +284,8 @@ defmodule YoutrackWeb.FlowMetricsLive do
     long_running = build_long_running_data(ongoing_items)
 
     rotation_metrics = Rotation.metrics_by_person(work_items)
-    rotation_person_stream = Rotation.person_week_stream(work_items)
+    rotation_person_stream = build_rotation_person_stream(work_items)
+    rotation_transition_sankey = build_rotation_transition_sankey(work_items)
     stream_tenure = Rotation.stream_tenure(work_items)
 
     rework_by_stream =
@@ -309,6 +310,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
         long_running: long_running,
         rotation_metrics: rotation_metrics,
         rotation_person_stream: rotation_person_stream,
+        rotation_transition_sankey: rotation_transition_sankey,
         stream_tenure: stream_tenure,
         rework_by_stream: rework_by_stream,
         unplanned_by_stream: unplanned_by_stream,
@@ -841,6 +843,75 @@ defmodule YoutrackWeb.FlowMetricsLive do
     |> Enum.sort_by(& &1.week)
   end
 
+  defp build_rotation_person_stream(work_items) do
+    work_items
+    |> Rotation.person_week_stream()
+    |> Enum.sort_by(&{&1.person, &1.stream, &1.week})
+  end
+
+  defp build_rotation_transition_sankey(work_items) do
+    link_index =
+      work_items
+      |> Rotation.timeline_by_person()
+      |> Enum.flat_map(fn {person, weekly} ->
+        weekly
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.flat_map(fn [previous_week, current_week] ->
+          if Date.diff(current_week.week, previous_week.week) == 7 do
+            build_transition_pairs(person, previous_week.all_streams, current_week.all_streams)
+          else
+            []
+          end
+        end)
+      end)
+      |> Enum.reduce(%{}, fn {source, target, person}, acc ->
+        key = {source, target}
+
+        Map.update(acc, key, MapSet.new([person]), fn people ->
+          MapSet.put(people, person)
+        end)
+      end)
+
+    nodes =
+      link_index
+      |> Map.keys()
+      |> Enum.flat_map(fn {source, target} -> [source, target] end)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(fn stream -> %{"name" => stream} end)
+
+    links =
+      link_index
+      |> Enum.sort_by(fn {{source, target}, _people} -> {source, target} end)
+      |> Enum.map(fn {{source, target}, people} ->
+        people_list = people |> MapSet.to_list() |> Enum.sort()
+
+        %{
+          "source" => source,
+          "target" => target,
+          "value" => length(people_list),
+          "people" => Enum.join(people_list, ", "),
+          "people_count" => length(people_list)
+        }
+      end)
+
+    %{"nodes" => nodes, "links" => links}
+  end
+
+  defp build_transition_pairs(person, previous_streams, current_streams) do
+    previous_streams
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.flat_map(fn source ->
+      current_streams
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.reject(&(&1 == source))
+      |> Enum.map(fn target -> {source, target, person} end)
+    end)
+    |> Enum.uniq()
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -1120,8 +1191,18 @@ defmodule YoutrackWeb.FlowMetricsLive do
               />
               <.chart_card
                 id="chart-rotation-person-stream"
-                title="Person × Week Activity"
+                title="Person Timelines by Week"
+                description="One panel per teammate. Rows show streams touched each week so parallel work and switching pop out immediately."
                 spec={@chart_specs.rotation_person_stream}
+                class="min-h-[60rem]"
+                wrapper_class="md:col-span-2"
+              />
+              <.chart_card
+                id="chart-rotation-sankey"
+                title="Week-to-Week Stream Transition Sankey"
+                description="Aggregated transitions across consecutive weeks using all touched streams. Thicker ribbons mean more teammates made that move."
+                spec={@chart_specs.rotation_transition_sankey}
+                class="h-[34rem]"
                 wrapper_class="md:col-span-2"
               />
               <.chart_card
@@ -1225,7 +1306,8 @@ defmodule YoutrackWeb.FlowMetricsLive do
       %{id: "chart-long-running", title: "Long Running Ongoing Items"},
       %{id: "chart-rotation-switches", title: "Rotation Switches"},
       %{id: "chart-rotation-tenure", title: "Rotation Tenure"},
-      %{id: "chart-rotation-person-stream", title: "Person × Week Activity"},
+      %{id: "chart-rotation-person-stream", title: "Person Timelines by Week"},
+      %{id: "chart-rotation-sankey", title: "Week-to-Week Transition Sankey"},
       %{id: "chart-rotation-stream-tenure", title: "Stream Tenure"},
       %{id: "chart-rework-stream", title: "Rework by Stream", optional: :rework_by_stream},
       %{id: "chart-unplanned-stream", title: "Unplanned by Stream"},

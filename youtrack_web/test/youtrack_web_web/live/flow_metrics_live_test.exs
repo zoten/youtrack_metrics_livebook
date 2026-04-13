@@ -134,6 +134,7 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
             rotation_switches: chart_spec,
             rotation_tenure: chart_spec,
             rotation_person_stream: chart_spec,
+            rotation_transition_sankey: chart_spec,
             rotation_stream_tenure: chart_spec,
             rework_by_stream: chart_spec,
             unplanned_by_stream: chart_spec,
@@ -149,6 +150,7 @@ defmodule YoutrackWeb.FlowMetricsLiveTest do
     assert has_element?(view, "#chart-throughput")
     assert has_element?(view, "#chart-throughput-card")
     assert has_element?(view, "#chart-context-heat")
+    assert has_element?(view, "#chart-rotation-sankey")
     assert has_element?(view, "#chart-unplanned-trend")
     assert has_element?(view, "#flow-cache-state", "Last fetch source: cache miss")
   end
