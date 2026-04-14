@@ -6,7 +6,6 @@ defmodule YoutrackWeb.Charts.Primitives do
   def nominal_bar(values, title, x_field, y_field, x_title, y_title, opts \\ []) do
     color = Keyword.get(opts, :color)
     sort = Keyword.get(opts, :sort, "-y")
-    width = Keyword.get(opts, :width, 600)
     height = Keyword.get(opts, :height, 300)
 
     mark =
@@ -17,7 +16,6 @@ defmodule YoutrackWeb.Charts.Primitives do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => title,
-      "width" => width,
       "height" => height,
       "data" => %{"values" => values},
       "mark" => mark,
@@ -30,7 +28,6 @@ defmodule YoutrackWeb.Charts.Primitives do
 
   def time_bar(values, title, y_field, y_title, opts \\ []) do
     color = Keyword.get(opts, :color, "orangered")
-    width = Keyword.get(opts, :width, 700)
     height = Keyword.get(opts, :height, 300)
     x_field = Keyword.get(opts, :x_field, "week")
     x_title = Keyword.get(opts, :x_title, "Week")
@@ -38,7 +35,6 @@ defmodule YoutrackWeb.Charts.Primitives do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => title,
-      "width" => width,
       "height" => height,
       "data" => %{"values" => values},
       "mark" => %{"type" => "bar", "tooltip" => true, "color" => color},

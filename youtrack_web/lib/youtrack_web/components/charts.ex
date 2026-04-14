@@ -37,7 +37,7 @@ defmodule YoutrackWeb.Components.Charts do
       id={@id}
       phx-hook="VegaLite"
       data-spec={@spec_json}
-      class={["metrics-chart", @class]}
+      class={["metrics-chart min-w-0 overflow-hidden", @class]}
     >
       <div class="metrics-chart-loading flex h-full items-center justify-center">
         <span>Loading chart...</span>

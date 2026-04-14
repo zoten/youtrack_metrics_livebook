@@ -22,11 +22,18 @@ export default {
             }
         })
         this._themeObserver.observe(document.documentElement, { attributes: true })
+
+        // Re-render when the card/container resizes (e.g. sidebar toggle, window resize).
+        this._resizeObserver = new ResizeObserver(() => this.render())
+        this._resizeObserver.observe(this.el)
     },
 
     destroyed() {
         if (this._themeObserver) {
             this._themeObserver.disconnect()
+        }
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect()
         }
     },
 
@@ -54,13 +61,11 @@ export default {
             // Full Vega specs may use absolute coordinates, so keep their authored width.
             if (isVegaLite) {
                 if (specObj.spec && (specObj.facet || specObj.repeat)) {
-                    if (specObj.spec.width == null) {
-                        specObj.spec.width = "container"
-                    }
+                    specObj.spec.width = "container"
+                } else if (Array.isArray(specObj.vconcat)) {
+                    specObj.vconcat.forEach(sub => { sub.width = "container" })
                 } else {
-                    if (specObj.width == null) {
-                        specObj.width = "container"
-                    }
+                    specObj.width = "container"
                 }
             }
             if (specObj.autosize == null) {

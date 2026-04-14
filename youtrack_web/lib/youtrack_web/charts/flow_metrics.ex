@@ -71,7 +71,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Cycle Time Distribution (days)",
-      "width" => 600,
       "height" => 300,
       "data" => %{"values" => values},
       "mark" => %{"type" => "bar", "tooltip" => true},
@@ -91,7 +90,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Cycle Time by Workstream",
-      "width" => 600,
       "height" => 300,
       "data" => %{"values" => values},
       "mark" => %{"type" => "boxplot", "extent" => 1.5},
@@ -116,7 +114,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Net Active Time Distribution (days)",
-      "width" => 600,
       "height" => 300,
       "data" => %{"values" => values},
       "mark" => %{"type" => "bar", "tooltip" => true},
@@ -136,7 +133,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Net Active Time by Workstream",
-      "width" => 600,
       "height" => 300,
       "data" => %{"values" => values},
       "mark" => %{"type" => "boxplot", "extent" => 1.5},
@@ -161,7 +157,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Cycle Time vs Net Active Time by Workstream (median)",
-      "width" => 600,
       "height" => 350,
       "data" => %{"values" => values},
       "transform" => [
@@ -218,7 +213,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Context Switching: Streams per Person per Week",
-      "width" => 700,
       "height" => 300,
       "data" => %{"values" => values},
       "mark" => %{"type" => "rect", "tooltip" => true, "stroke" => "white", "strokeWidth" => 0.4},
@@ -272,7 +266,7 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
             "fontWeight" => "bold",
             "offset" => 8
           },
-          "width" => 700,
+          "width" => "container",
           "height" => %{"step" => 24},
           "data" => %{"values" => Enum.sort_by(rows, &{&1.stream, &1.week})},
           "mark" => %{
@@ -400,7 +394,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => "Stream Tenure: Total Weeks per Person per Stream",
-      "width" => 700,
       "height" => 400,
       "data" => %{"values" => values},
       "mark" => %{"type" => "bar", "tooltip" => true},
@@ -453,7 +446,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => title,
-      "width" => 700,
       "height" => 300,
       "data" => %{"values" => values},
       "layer" => [
@@ -487,7 +479,6 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
     %{
       "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
       "title" => title,
-      "width" => 700,
       "height" => 300,
       "data" => %{"values" => values},
       "mark" => %{"type" => "bar", "tooltip" => true},

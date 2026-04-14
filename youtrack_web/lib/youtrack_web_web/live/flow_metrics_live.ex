@@ -1244,7 +1244,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
                 description="Aggregated transitions across consecutive weeks using all touched streams. Thicker ribbons mean more teammates made that move."
                 spec={@chart_specs.rotation_transition_sankey}
                 class="h-[34rem]"
-                wrapper_class="md:col-span-2"
+                wrapper_class="md:col-span-2 overflow-x-auto"
               />
               <.chart_card
                 id="chart-rotation-stream-tenure"
