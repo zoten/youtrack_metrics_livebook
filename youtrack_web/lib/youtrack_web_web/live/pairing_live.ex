@@ -11,6 +11,7 @@ defmodule YoutrackWeb.PairingLive do
   alias YoutrackWeb.Charts.Pairing, as: PairingCharts
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.RuntimeConfig
 
   @impl true
   def mount(_params, _session, socket) do
@@ -36,6 +37,7 @@ defmodule YoutrackWeb.PairingLive do
     if connected?(socket) do
       send(self(), :maybe_auto_fetch)
       Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
     end
 
     {:ok, socket}
@@ -140,6 +142,18 @@ defmodule YoutrackWeb.PairingLive do
      |> assign(:chart_specs, %{})
      |> assign(:metrics, %{})
      |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh charts")}
+  end
+
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults = Configuration.defaults()
+    config = Configuration.merge_shared(defaults, socket.assigns.config)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
   @impl true
@@ -483,16 +497,25 @@ defmodule YoutrackWeb.PairingLive do
   end
 
   defp load_rules("") do
-    {rules, _path} = WorkstreamsLoader.load_from_default_paths()
-    rules
+    RuntimeConfig.workstream_rules()
   end
 
   defp load_rules(path) do
-    case WorkstreamsLoader.load_file(path) do
-      {:ok, rules} -> rules
-      {:error, _} -> WorkstreamsLoader.empty_rules()
+    if RuntimeConfig.workstreams_path() == path do
+      RuntimeConfig.workstream_rules()
+    else
+      case WorkstreamsLoader.load_file(path) do
+        {:ok, rules} -> rules
+        {:error, _} -> WorkstreamsLoader.empty_rules()
+      end
     end
   end
+
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
+
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 
   defp validate_config(config) do
     cond do

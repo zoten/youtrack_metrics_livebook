@@ -3,6 +3,7 @@ defmodule YoutrackWeb.DashboardLive do
 
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.RuntimeConfig
 
   @impl true
   def mount(_params, _session, socket) do
@@ -11,6 +12,10 @@ defmodule YoutrackWeb.DashboardLive do
       |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
 
     config_open? = ConfigVisibilityPreference.from_socket(socket)
+
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
+    end
 
     {:ok,
      socket
@@ -50,6 +55,18 @@ defmodule YoutrackWeb.DashboardLive do
   @impl true
   def handle_event("chart_error", _params, socket) do
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults = Configuration.defaults()
+    config = Configuration.merge_shared(defaults, socket.assigns.config)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
   @impl true
@@ -218,4 +235,10 @@ defmodule YoutrackWeb.DashboardLive do
   defp section_path("card_focus"), do: ~p"/card"
   defp section_path("workstream_config"), do: ~p"/workstreams"
   defp section_path(_), do: ~p"/flow-metrics"
+
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
+
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 end

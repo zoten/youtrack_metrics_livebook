@@ -5,6 +5,8 @@ defmodule YoutrackWeb.FetchCache do
 
   use GenServer
 
+  alias YoutrackWeb.RuntimeConfig
+
   @table :youtrack_web_fetch_cache
 
   def start_link(_opts) do
@@ -58,7 +60,7 @@ defmodule YoutrackWeb.FetchCache do
   end
 
   defp ttl_from_config_ms do
-    seconds = Application.get_env(:youtrack_web, :cache_ttl_seconds, 600)
+    seconds = RuntimeConfig.cache_ttl_seconds()
     seconds * 1000
   end
 end

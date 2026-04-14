@@ -1,6 +1,8 @@
 defmodule YoutrackWeb.RuntimeConfigReloader do
   @moduledoc false
 
+  alias Youtrack.WorkstreamsLoader
+
   @dotenv_paths [
     Path.expand("../../../.env", __DIR__),
     Path.expand("../../.env", __DIR__)
@@ -24,7 +26,9 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
     {"prompts_path", "PROMPTS_PATH", "../prompts"}
   ]
 
-  def reload do
+  def dotenv_paths, do: @dotenv_paths
+
+  def load_snapshot do
     with :ok <- load_dotenv_files(),
          {:ok, cache_ttl} <-
            parse_positive_int(System.get_env("YOUTRACK_CACHE_TTL_SECONDS", "600")) do
@@ -33,17 +37,24 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
         |> Enum.map(fn {key, env_name, default} -> {key, System.get_env(env_name, default)} end)
         |> Map.new()
 
-      Application.put_env(:youtrack_web, :dashboard_defaults, dashboard_defaults)
+      {workstream_rules, workstreams_path} =
+        load_workstream_rules(Map.get(dashboard_defaults, "workstreams_path", ""))
 
-      Application.put_env(
-        :youtrack_web,
-        :report_prompt_files,
-        csv_env("YOUTRACK_PROMPT_FILES", "")
-      )
+      {:ok,
+       %{
+         dashboard_defaults: dashboard_defaults,
+         cache_ttl_seconds: cache_ttl,
+         report_prompt_files: csv_env("YOUTRACK_PROMPT_FILES", ""),
+         workstream_rules: workstream_rules,
+         workstreams_path: workstreams_path
+       }}
+    end
+  end
 
-      Application.put_env(:youtrack_web, :cache_ttl_seconds, cache_ttl)
-
-      {:ok, dashboard_defaults}
+  def reload do
+    case load_snapshot() do
+      {:ok, snapshot} -> {:ok, snapshot.dashboard_defaults}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -120,6 +131,17 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
     |> String.split(",", trim: true)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+  end
+
+  defp load_workstream_rules("") do
+    WorkstreamsLoader.load_from_default_paths()
+  end
+
+  defp load_workstream_rules(path) do
+    case WorkstreamsLoader.load_file(path) do
+      {:ok, rules} -> {rules, path}
+      {:error, _reason} -> {WorkstreamsLoader.empty_rules(), path}
+    end
   end
 
   defp parse_positive_int(value) when is_binary(value) do

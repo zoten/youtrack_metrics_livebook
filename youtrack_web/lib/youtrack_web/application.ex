@@ -14,6 +14,8 @@ defmodule YoutrackWeb.Application do
        repos: Application.fetch_env!(:youtrack_web, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:youtrack_web, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: YoutrackWeb.PubSub},
+      {YoutrackWeb.RuntimeConfig.Server, name: YoutrackWeb.RuntimeConfig.Server},
+      {YoutrackWeb.PromptRegistry, name: YoutrackWeb.PromptRegistry},
       {Task.Supervisor, name: YoutrackWeb.TaskSupervisor},
       YoutrackWeb.FetchCache,
       # Start a worker by calling: Youtrack.Worker.start_link(arg)

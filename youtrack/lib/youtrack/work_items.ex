@@ -89,6 +89,8 @@ defmodule Youtrack.WorkItems do
               String.downcase(t) == String.downcase(unplanned_tag)
             end)
 
+        updated = issue["updated"]
+
         for a <- assignees, stream <- streams do
           %{
             issue_id: issue["idReadable"] || issue["id"],
@@ -101,6 +103,7 @@ defmodule Youtrack.WorkItems do
             status: status,
             start_at: start_at,
             end_at: end_at,
+            updated: updated,
             created: created,
             resolved: resolved,
             is_unplanned: is_unplanned,

@@ -221,9 +221,9 @@ defmodule YoutrackWeb.Charts.FlowMetrics do
       "width" => 700,
       "height" => 300,
       "data" => %{"values" => values},
-      "mark" => %{"type" => "rect", "tooltip" => true},
+      "mark" => %{"type" => "rect", "tooltip" => true, "stroke" => "white", "strokeWidth" => 0.4},
       "encoding" => %{
-        "x" => %{"field" => "week", "type" => "temporal", "title" => "Week"},
+        "x" => %{"field" => "week", "type" => "ordinal", "title" => "Week", "sort" => "ascending"},
         "y" => %{
           "field" => "person",
           "type" => "nominal",

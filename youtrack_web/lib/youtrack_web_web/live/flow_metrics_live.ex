@@ -18,6 +18,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
   alias YoutrackWeb.Charts.FlowMetrics, as: FlowMetricsCharts
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.RuntimeConfig
 
   @impl true
   def mount(_params, _session, socket) do
@@ -44,6 +45,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
     if connected?(socket) do
       send(self(), :maybe_auto_fetch)
       Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
     end
 
     {:ok, socket}
@@ -183,6 +185,18 @@ defmodule YoutrackWeb.FlowMetricsLive do
      |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh charts")}
   end
 
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults = Configuration.defaults()
+    config = Configuration.merge_shared(defaults, socket.assigns.config)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
+  end
+
   defp start_fetch_task(socket, config, refresh?) do
     owner_pid = self()
 
@@ -277,7 +291,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
     net_active_data =
       build_net_active_data(finished_items, issue_activities, state_field, in_progress_names)
 
-    context_switch_data = build_context_switch_data(work_items)
+    context_switch_data = build_context_switch_data(work_items, issue_activities, excluded_logins)
     context_switch_avg = build_context_switch_avg(context_switch_data)
 
     bus_factor_data = build_bus_factor_data(work_items)
@@ -415,16 +429,25 @@ defmodule YoutrackWeb.FlowMetricsLive do
   end
 
   defp load_rules("") do
-    {rules, _path} = WorkstreamsLoader.load_from_default_paths()
-    rules
+    RuntimeConfig.workstream_rules()
   end
 
   defp load_rules(path) do
-    case WorkstreamsLoader.load_file(path) do
-      {:ok, rules} -> rules
-      {:error, _reason} -> WorkstreamsLoader.empty_rules()
+    if RuntimeConfig.workstreams_path() == path do
+      RuntimeConfig.workstream_rules()
+    else
+      case WorkstreamsLoader.load_file(path) do
+        {:ok, rules} -> rules
+        {:error, _reason} -> WorkstreamsLoader.empty_rules()
+      end
     end
   end
+
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
+
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 
   defp build_throughput_by_week(finished_items) do
     finished_items
@@ -715,24 +738,42 @@ defmodule YoutrackWeb.FlowMetricsLive do
     |> Enum.sort_by(& &1.wip, :desc)
   end
 
-  defp build_context_switch_data(work_items) do
-    work_items
-    |> Enum.filter(&is_integer(&1.created))
-    |> Enum.map(fn wi ->
-      week =
-        wi.created
-        |> div(1000)
-        |> DateTime.from_unix!()
-        |> DateTime.to_date()
-        |> Date.beginning_of_week(:monday)
-        |> Date.to_iso8601()
+  defp build_context_switch_data(work_items, _issue_activities, excluded_logins) do
+    excluded_set = MapSet.new(excluded_logins)
 
-      %{person: wi.person_name, week: week, stream: wi.stream}
+    # For context switching we want to know: in a given week, how many distinct streams
+    # did a person ACTUALLY TOUCH? We use each item's most recent activity timestamp
+    # (issue updated, or resolved for finished items) as the single week it counts toward.
+    # This reveals genuine week-to-week variation rather than a static "what am I holding".
+    work_items
+    |> Enum.reject(&MapSet.member?(excluded_set, &1.person_login))
+    |> Enum.reduce(%{}, fn wi, acc ->
+      # Pick the most meaningful activity timestamp for this item.
+      # Prefer resolved (for finished items), then updated, then created.
+      ts =
+        case wi do
+          %{status: "finished", resolved: r} when is_integer(r) -> r
+          _ -> Map.get(wi, :updated) || wi.created
+        end
+
+      if is_integer(ts) do
+        week =
+          ts
+          |> div(1000)
+          |> DateTime.from_unix!()
+          |> DateTime.to_date()
+          |> Date.beginning_of_week(:monday)
+          |> Date.to_iso8601()
+
+        key = {wi.person_name, week}
+        streams = Map.get(acc, key, MapSet.new())
+        Map.put(acc, key, MapSet.put(streams, wi.stream))
+      else
+        acc
+      end
     end)
-    |> Enum.group_by(&{&1.person, &1.week})
-    |> Enum.map(fn {{person, week}, items} ->
-      distinct_streams = items |> Enum.map(& &1.stream) |> Enum.uniq() |> length()
-      %{person: person, week: week, distinct_streams: distinct_streams}
+    |> Enum.map(fn {{person, week}, streams} ->
+      %{person: person, week: week, distinct_streams: MapSet.size(streams)}
     end)
     |> Enum.sort_by(&{&1.week, &1.person})
   end

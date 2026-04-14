@@ -11,6 +11,8 @@ defmodule YoutrackWeb.WeeklyReportLive do
   alias Youtrack.WorkstreamsLoader
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.PromptRegistry
+  alias YoutrackWeb.RuntimeConfig
   alias YoutrackWeb.WeeklyReportSummary
 
   @payload_placeholder "{{REPORT_PAYLOAD_JSON}}"
@@ -48,7 +50,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
       |> with_report_defaults()
       |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
 
-    prompt_files = discover_prompt_files(defaults["prompts_path"])
+    prompt_files = PromptRegistry.list_prompt_files(defaults["prompts_path"])
     defaults = ensure_prompt_source(defaults, prompt_files)
     config_open? = ConfigVisibilityPreference.from_socket(socket)
 
@@ -77,6 +79,8 @@ defmodule YoutrackWeb.WeeklyReportLive do
       send(self(), :maybe_auto_fetch)
       send(self(), :load_llm_models)
       Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, PromptRegistry.topic())
     end
 
     {:ok, socket}
@@ -98,7 +102,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
       socket.assigns.config
       |> Configuration.merge_partial(params)
 
-    prompt_files = discover_prompt_files(config["prompts_path"] || "")
+    prompt_files = PromptRegistry.list_prompt_files(config["prompts_path"] || "")
     config = ensure_prompt_source(config, prompt_files)
 
     {:noreply,
@@ -154,7 +158,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     case Configuration.reload_defaults() do
       {:ok, defaults} ->
         defaults = defaults |> with_report_defaults()
-        prompt_files = discover_prompt_files(defaults["prompts_path"])
+        prompt_files = PromptRegistry.list_prompt_files(defaults["prompts_path"])
         defaults = ensure_prompt_source(defaults, prompt_files)
 
         {:noreply,
@@ -347,6 +351,36 @@ defmodule YoutrackWeb.WeeklyReportLive do
      socket
      |> assign(:report_data, nil)
      |> put_flash(:info, "Workstream rules updated — re-run fetch to refresh report")}
+  end
+
+  @impl true
+  def handle_info({:prompts_updated, _payload}, socket) do
+    prompt_files = PromptRegistry.list_prompt_files(socket.assigns.config["prompts_path"])
+    config = ensure_prompt_source(socket.assigns.config, prompt_files)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> assign(:prompt_files, prompt_files)}
+  end
+
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults =
+      Configuration.defaults()
+      |> with_report_defaults()
+
+    config = defaults |> Configuration.merge_partial(socket.assigns.config)
+    prompt_files = PromptRegistry.list_prompt_files(config["prompts_path"])
+    config = ensure_prompt_source(config, prompt_files)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> assign(:prompt_files, prompt_files)
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
   @impl true
@@ -604,7 +638,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
       end
 
     prompt_template =
-      load_prompt_template(config, discover_prompt_files(config["prompts_path"] || ""))
+      load_prompt_template(config, PromptRegistry.list_prompt_files(config["prompts_path"] || ""))
 
     prompt_text = build_prompt_text(prompt_template, selected_payload_json)
 
@@ -705,27 +739,11 @@ defmodule YoutrackWeb.WeeklyReportLive do
     end
   end
 
-  defp discover_prompt_files(prompts_path) do
-    path = to_string(prompts_path || "")
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
 
-    if path == "" or not File.dir?(path) do
-      []
-    else
-      path
-      |> File.ls!()
-      |> Enum.filter(fn file ->
-        String.ends_with?(file, [".txt", ".md", ".prompt"]) or String.contains?(file, ".prompt.")
-      end)
-      |> Enum.map(fn file ->
-        %{
-          id: "file:" <> file,
-          label: file,
-          path: Path.join(path, file)
-        }
-      end)
-      |> Enum.sort_by(& &1.label)
-    end
-  end
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 
   defp with_report_defaults(defaults) do
     today = Date.utc_today()

@@ -16,6 +16,7 @@ defmodule YoutrackWeb.WorkstreamConfigLive do
   alias Youtrack.WorkstreamsLoader
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.RuntimeConfig
 
   @page_size 20
 
@@ -52,6 +53,7 @@ defmodule YoutrackWeb.WorkstreamConfigLive do
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, "workstreams:updated")
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
     end
 
     {:ok, socket}
@@ -321,6 +323,29 @@ defmodule YoutrackWeb.WorkstreamConfigLive do
      |> assign(:yaml_error, nil)
      |> assign(:unclassified_stats, unclassified_stats)
      |> assign(:match_stats, match_stats)}
+  end
+
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults = Configuration.defaults()
+    config = Configuration.merge_shared(defaults, socket.assigns.config)
+
+    {yaml_text, save_path, rules} = load_yaml_and_rules(config["workstreams_path"] || "")
+
+    unclassified_stats = build_unclassified_stats(socket.assigns.raw_issues, rules)
+    match_stats = Workstreams.build_match_stats(socket.assigns.raw_issues, rules)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> assign(:yaml_text, yaml_text)
+     |> assign(:save_path, save_path)
+     |> assign(:rules, rules)
+     |> assign(:yaml_error, nil)
+     |> assign(:unclassified_stats, unclassified_stats)
+     |> assign(:match_stats, match_stats)
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
   # ──────────────────────────────────────────────────────────────────────────
@@ -801,6 +826,12 @@ defmodule YoutrackWeb.WorkstreamConfigLive do
   defp cache_state_label(:refresh), do: "refresh"
   defp cache_state_label(%{source: source}), do: cache_state_label(source)
   defp cache_state_label(_), do: "unknown"
+
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
+
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 
   defp blank?(value), do: is_nil(value) or String.trim(to_string(value)) == ""
 

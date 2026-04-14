@@ -11,6 +11,7 @@ defmodule YoutrackWeb.ComparisonLive do
   alias YoutrackWeb.Charts.Comparison, as: ComparisonCharts
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.RuntimeConfig
 
   @issue_fields [
     "idReadable",
@@ -40,6 +41,10 @@ defmodule YoutrackWeb.ComparisonLive do
 
     # Parse issue IDs from query params (comma-separated)
     issue_ids = parse_issue_ids(params["ids"])
+
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
+    end
 
     {:ok,
      socket
@@ -260,6 +265,18 @@ defmodule YoutrackWeb.ComparisonLive do
      |> assign(:fetch_errors, fetch_errors)
      |> assign(:loading?, MapSet.size(loading_ids) > 0)
      |> assign(:fetch_error, fetch_error)}
+  end
+
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults = Configuration.defaults()
+    config = Configuration.merge_shared(defaults, socket.assigns.config)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
   @impl true
@@ -583,6 +600,12 @@ defmodule YoutrackWeb.ComparisonLive do
   defp issue_ids_to_url_string(ids) when is_list(ids) do
     Enum.join(ids, ",")
   end
+
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
+
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 
   defp validate_fetch(config, issue_ids) do
     cond do

@@ -1,7 +1,7 @@
 defmodule YoutrackWeb.Configuration do
   @moduledoc false
 
-  alias YoutrackWeb.RuntimeConfigReloader
+  alias YoutrackWeb.RuntimeConfig
 
   @sections [
     %{
@@ -83,7 +83,7 @@ defmodule YoutrackWeb.Configuration do
   ]
 
   def defaults do
-    Application.get_env(:youtrack_web, :dashboard_defaults, %{})
+    RuntimeConfig.dashboard_defaults()
   end
 
   def shared_fields do
@@ -121,8 +121,8 @@ defmodule YoutrackWeb.Configuration do
   end
 
   def reload_defaults do
-    case RuntimeConfigReloader.reload() do
-      {:ok, defaults} -> {:ok, defaults}
+    case RuntimeConfig.reload() do
+      {:ok, snapshot} -> {:ok, snapshot.dashboard_defaults}
       {:error, reason} -> {:error, reason}
     end
   end

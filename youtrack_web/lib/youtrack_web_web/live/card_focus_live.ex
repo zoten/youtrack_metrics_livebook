@@ -13,6 +13,7 @@ defmodule YoutrackWeb.CardFocusLive do
   alias YoutrackWeb.Charts.CardFocus, as: CardFocusCharts
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
+  alias YoutrackWeb.RuntimeConfig
 
   @issue_fields [
     "idReadable",
@@ -40,8 +41,12 @@ defmodule YoutrackWeb.CardFocusLive do
     config_open? = ConfigVisibilityPreference.from_socket(socket)
     issue_id = normalize_issue_id(params["issue_id"])
 
-    if connected?(socket) and issue_id != nil do
-      send(self(), :maybe_auto_fetch)
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(YoutrackWeb.PubSub, RuntimeConfig.topic())
+
+      if issue_id != nil do
+        send(self(), :maybe_auto_fetch)
+      end
     end
 
     {:ok,
@@ -192,6 +197,18 @@ defmodule YoutrackWeb.CardFocusLive do
      socket
      |> assign(:loading?, false)
      |> assign(:fetch_error, "Background task crashed: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_info({:config_reloaded, payload}, socket) do
+    defaults = Configuration.defaults()
+    config = Configuration.merge_shared(defaults, socket.assigns.config)
+
+    {:noreply,
+     socket
+     |> assign(:config, config)
+     |> assign(:config_form, to_form(config, as: :config))
+     |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
   @impl true
@@ -627,6 +644,12 @@ defmodule YoutrackWeb.CardFocusLive do
 
   defp page_title(nil), do: "Card Focus"
   defp page_title(issue_id), do: "Card Focus · #{issue_id}"
+
+  defp config_reload_message({:file_change, _paths}),
+    do: "Configuration changed on disk and was reloaded"
+
+  defp config_reload_message(:manual), do: "Configuration reloaded"
+  defp config_reload_message(_), do: "Configuration updated"
 
   defp validate_fetch(config, issue_id) do
     cond do
