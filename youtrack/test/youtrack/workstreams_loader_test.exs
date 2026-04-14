@@ -15,7 +15,7 @@ defmodule Youtrack.WorkstreamsLoaderTest do
       rules = WorkstreamsLoader.transform_to_internal(yaml)
 
       assert rules.slug_prefix_to_stream == %{"BACKEND" => ["BACKEND"]}
-      assert rules.tag_to_stream == %{"team:backend" => ["BACKEND"]}
+      assert rules.tag_to_stream == %{"TEAM:BACKEND" => ["BACKEND"]}
       assert rules.substream_of == %{}
       assert rules.fallback == ["(unclassified)"]
     end
@@ -81,6 +81,20 @@ defmodule Youtrack.WorkstreamsLoaderTest do
       assert rules.slug_prefix_to_stream == %{}
       assert rules.tag_to_stream == %{}
       assert rules.substream_of == %{"API" => ["PARENT"]}
+    end
+
+    test "uppercases tag keys so they match streams_for_issue lookup" do
+      yaml = %{
+        "INFOSEC" => %{
+          "tags" => ["sec:app", "sec:issue"]
+        }
+      }
+
+      rules = WorkstreamsLoader.transform_to_internal(yaml)
+
+      assert Map.has_key?(rules.tag_to_stream, "SEC:APP")
+      assert Map.has_key?(rules.tag_to_stream, "SEC:ISSUE")
+      refute Map.has_key?(rules.tag_to_stream, "sec:app")
     end
   end
 

@@ -80,7 +80,7 @@ defmodule Youtrack.WorkstreamsLoader do
         tags_acc =
           (config["tags"] || [])
           |> Enum.reduce(tags_acc, fn tag, acc ->
-            Map.put(acc, tag, stream_list)
+            Map.put(acc, String.upcase(tag), stream_list)
           end)
 
         types_acc =
