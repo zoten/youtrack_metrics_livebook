@@ -1,0 +1,101 @@
+# Generic effort normalization example
+# Works with YoutrackWeb.EffortMappingsLoader schema:
+# - field_candidates: ordered priority
+# - rules: numeric or enum
+# - fallback.strategy: unmapped | zero
+
+version: 1
+profile: "generic-mixed-agile"
+
+field_candidates:
+  # Prefer explicit numeric effort first when available
+  - Story Points
+  - Effort Points
+
+  # Then T-shirt or complexity scales
+  - Size
+  - T-Shirt
+  - Complexity
+
+  # Then workflow semantics as a last-resort proxy
+  - Type of work
+  - Strategy
+  - Category
+
+rules:
+  Story Points:
+    type: numeric
+    min: 0
+
+  Effort Points:
+    type: numeric
+    min: 0
+
+  Size:
+    type: enum
+    map:
+      xs: 1
+      s: 2
+      m: 3
+      l: 5
+      xl: 8
+      xxl: 13
+      tiny: 1
+      small: 2
+      medium: 3
+      large: 5
+      huge: 8
+
+  T-Shirt:
+    type: enum
+    map:
+      xs: 1
+      s: 2
+      m: 3
+      l: 5
+      xl: 8
+
+  Complexity:
+    type: enum
+    map:
+      trivial: 1
+      low: 2
+      medium: 3
+      high: 5
+      extreme: 8
+
+  Type of work:
+    type: enum
+    map:
+      bug: 2
+      task: 3
+      story: 5
+      feature: 8
+      refactor: 3
+      chore: 1
+      spike: 3
+      incident: 2
+      support: 2
+
+  Strategy:
+    type: enum
+    map:
+      ktlo: 2
+      growth: 5
+      foundation: 3
+      migration: 5
+      compliance: 3
+      experiment: 3
+      research: 3
+
+  Category:
+    type: enum
+    map:
+      platform: 3
+      product: 5
+      maintenance: 2
+      ops: 2
+
+fallback:
+  # Recommended for data-quality visibility
+  strategy: unmapped

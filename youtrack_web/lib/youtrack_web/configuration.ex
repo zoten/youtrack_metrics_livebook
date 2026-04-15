@@ -61,6 +61,15 @@ defmodule YoutrackWeb.Configuration do
       description:
         "Compare 2-4 issues side by side with aligned Gantt charts and shared event timelines.",
       highlights: ["Shared Gantt", "Event timelines", "Metric comparison", "Side-by-side"]
+    },
+    %{
+      id: "workstream_analyzer",
+      label: "Workstream Analyzer",
+      stage: "In progress",
+      visuals: "Effort over time",
+      description:
+        "Compare streams in one trend chart or inspect how substreams compose a parent stream.",
+      highlights: ["Effort normalization", "Compare mode", "Composition mode", "Diagnostics"]
     }
   ]
 
@@ -79,6 +88,7 @@ defmodule YoutrackWeb.Configuration do
     "include_substreams",
     "unplanned_tag",
     "workstreams_path",
+    "effort_mappings_path",
     "prompts_path"
   ]
 

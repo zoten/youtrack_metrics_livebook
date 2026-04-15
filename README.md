@@ -24,6 +24,13 @@ Livebook notebooks for analyzing team activity from YouTrack. Visualize work tim
 - **Net active time** excludes periods tagged as hold/blocked
 - **Selectable prompt source** from `prompts/`, backward-compatible `.prompt`, or manual input
 
+### Workstream Analyzer (`youtrack_web`, `/workstream-analyzer`)
+- **Phoenix LiveView dashboard** for effort-over-time analysis at `http://localhost:4000/workstream-analyzer`
+- **Compare mode** overlays multiple workstreams on one weekly normalized-effort chart
+- **Composition mode** shows one parent stream split into stacked substreams with a total overlay
+- **Effort normalization** converts mixed schemes such as Story Points and enum sizes into common effort units
+- **Diagnostics panel** shows mapped fields, unmapped issues, and sample unmapped values so config gaps stay visible
+
 ## Prerequisites
 
 - Docker and Docker Compose
@@ -44,33 +51,39 @@ cp .env.example .env
 cp workstreams.example.yaml workstreams.yaml
 # Edit workstreams.yaml to match your project's workstreams
 
-# 4. Start Livebook
+# 4. Configure effort normalization for the analyzer (recommended for Phoenix)
+cp effort_mappings.example.yaml effort_mappings.yaml
+# Edit effort_mappings.yaml to match your YouTrack custom fields and effort scale
+
+# 5. Start the stack
 docker compose up
 # docker compose up -d
 
 # First run downloads Livebook/Mix dependencies into Docker volumes.
 # Later container recreations reuse that cache automatically.
 
-# 5. Open http://localhost:8080 in your browser
+# 6. Open Livebook at http://localhost:8080
+# 7. Open the Phoenix dashboard at http://localhost:4000
 ```
 
 ## Configuration
 
 ### Environment Variables (`.env`)
 
-| Variable                          | Required | Description                                                                        |
-| --------------------------------- | -------- | ---------------------------------------------------------------------------------- |
-| `YOUTRACK_BASE_URL`               | Yes      | Your YouTrack instance URL                                                         |
-| `YOUTRACK_TOKEN`                  | Yes      | Permanent API token                                                                |
-| `YOUTRACK_BASE_QUERY`             | No       | Base query filter (e.g., `project: MYPROJECT`)                                     |
-| `YOUTRACK_DAYS_BACK`              | No       | Days of history to fetch (default: 90)                                             |
-| `YOUTRACK_PROJECT_PREFIX`         | No       | Filter issues by ID prefix                                                         |
-| `YOUTRACK_STATE_FIELD`            | No       | Custom state field name (default: `State`)                                         |
-| `YOUTRACK_ASSIGNEES_FIELD`        | No       | Custom assignees field name (default: `Assignee`)                                  |
-| `YOUTRACK_IN_PROGRESS`            | No       | Comma-separated "in progress" state names                                          |
-| `YOUTRACK_REPORT_INACTIVE_STATES` | No       | Comma-separated inactive states used for cycle-time start (default: `To Do, Todo`) |
-| `YOUTRACK_EXCLUDED_LOGINS`        | No       | Comma-separated logins to exclude                                                  |
-| `YOUTRACK_UNPLANNED_TAG`          | No       | Tag for unplanned work (default: `unplanned`)                                      |
+| Variable                          | Required | Description                                                                            |
+| --------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `YOUTRACK_BASE_URL`               | Yes      | Your YouTrack instance URL                                                             |
+| `YOUTRACK_TOKEN`                  | Yes      | Permanent API token                                                                    |
+| `YOUTRACK_BASE_QUERY`             | No       | Base query filter (e.g., `project: MYPROJECT`)                                         |
+| `YOUTRACK_DAYS_BACK`              | No       | Days of history to fetch (default: 90)                                                 |
+| `YOUTRACK_PROJECT_PREFIX`         | No       | Filter issues by ID prefix                                                             |
+| `YOUTRACK_STATE_FIELD`            | No       | Custom state field name (default: `State`)                                             |
+| `YOUTRACK_ASSIGNEES_FIELD`        | No       | Custom assignees field name (default: `Assignee`)                                      |
+| `YOUTRACK_IN_PROGRESS`            | No       | Comma-separated "in progress" state names                                              |
+| `YOUTRACK_REPORT_INACTIVE_STATES` | No       | Comma-separated inactive states used for cycle-time start (default: `To Do, Todo`)     |
+| `YOUTRACK_EXCLUDED_LOGINS`        | No       | Comma-separated logins to exclude                                                      |
+| `YOUTRACK_UNPLANNED_TAG`          | No       | Tag for unplanned work (default: `unplanned`)                                          |
+| `EFFORT_MAPPINGS_PATH`            | No       | Path to the analyzer effort mappings file (Phoenix default: `../effort_mappings.yaml`) |
 
 ### Workstreams (`workstreams.yaml`)
 
@@ -88,11 +101,61 @@ API:
     - API
   substream_of:
     - BACKEND       # API issues also count toward BACKEND
+
+BUGS:
+  types:
+    - Bug
 ```
 
 - **slugs**: Match issue summaries starting with `[SLUG]`
 - **tags**: Match YouTrack tags
+- **types**: Match YouTrack issue types such as `Bug` or `Feature`
 - **substream_of**: Parent workstreams (for hierarchical rollup)
+
+### Effort Mappings (`effort_mappings.yaml`)
+
+The Workstream Analyzer uses a separate YAML file to normalize mixed effort schemes into one numeric unit.
+
+```yaml
+version: 1
+profile: "generic-mixed-agile"
+
+field_candidates:
+  - Story Points
+  - Size
+  - T-Shirt
+
+rules:
+  Story Points:
+    type: numeric
+    min: 0
+
+  Size:
+    type: enum
+    map:
+      xs: 1
+      s: 2
+      m: 3
+      l: 5
+      xl: 8
+
+fallback:
+  strategy: unmapped
+```
+
+- **field_candidates**: ordered list of YouTrack custom fields to try first
+- **rules**: normalization rules per field
+- **type: numeric**: parse the field value as a number and enforce `min` when present
+- **type: enum**: map field values to numeric effort units; keys are normalized case-insensitively by the loader
+- **fallback.strategy: unmapped**: keep unmatched issues visible in diagnostics
+- **fallback.strategy: zero**: convert unmatched issues to `0` effort instead of flagging them as unmapped
+
+The Phoenix app can load mappings from `EFFORT_MAPPINGS_PATH`. If that path is blank, it falls back to the first existing file from this list:
+
+- `effort_mappings.yaml`
+- `/data/effort_mappings.yaml`
+- `effort_mappings.example.yaml`
+- `/data/effort_mappings.example.yaml`
 
 ## Usage
 
@@ -101,6 +164,18 @@ API:
 3. **Select a notebook** (`gantt.livemd` or `pairing.livemd`)
 4. **Run cells** top-to-bottom (or use "Evaluate all")
 5. **Adjust inputs** as needed and re-run the filter/analysis cells
+
+### Workstream Analyzer Usage
+
+1. Open `http://localhost:4000/workstream-analyzer`
+2. Fill in the shared YouTrack configuration from the sidebar
+3. Confirm `Workstreams path` and `Effort mappings path`
+4. Click `Fetch (cache)` for a cached run or `Refresh (API)` to bypass cache
+5. Use `Compare` mode to overlay multiple workstreams on one weekly chart
+6. Use `Composition` mode to inspect one parent stream broken down by substreams
+7. Review the normalization diagnostics panel to catch missing rules or unexpected field values
+
+The analyzer uses one effort model for MVP: it normalizes each issue to effort units, spreads that effort uniformly across the ISO weeks touched by the issue's active duration, and then aggregates those weekly slices by workstream.
 
 ### Local LLM Integration
 

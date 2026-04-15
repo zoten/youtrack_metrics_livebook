@@ -187,6 +187,8 @@ defmodule YoutrackWeb.RuntimeConfig.Server do
     |> Map.put_new(:report_prompt_files, [])
     |> Map.put_new(:workstream_rules, %{})
     |> Map.put_new(:workstreams_path, nil)
+    |> Map.put_new(:effort_mappings, %{})
+    |> Map.put_new(:effort_mappings_path, nil)
     |> Map.put(:metadata, metadata)
   end
 
@@ -281,7 +283,13 @@ defmodule YoutrackWeb.RuntimeConfig.Server do
         _ -> []
       end
 
-    (dotenv_dirs ++ workstreams_dirs)
+    effort_mappings_dirs =
+      case Map.get(snapshot, :effort_mappings_path) do
+        path when is_binary(path) and path != "" -> [Path.dirname(Path.expand(path))]
+        _ -> []
+      end
+
+    (dotenv_dirs ++ workstreams_dirs ++ effort_mappings_dirs)
     |> Enum.filter(&File.dir?/1)
     |> MapSet.new()
   end
@@ -289,9 +297,11 @@ defmodule YoutrackWeb.RuntimeConfig.Server do
   defp relevant_watch_path?(path, snapshot) when is_binary(path) do
     expanded = Path.expand(path)
     workstreams_path = Map.get(snapshot, :workstreams_path)
+    effort_mappings_path = Map.get(snapshot, :effort_mappings_path)
 
     Path.basename(expanded) == ".env" or
-      workstreams_match?(expanded, workstreams_path)
+      workstreams_match?(expanded, workstreams_path) or
+      effort_mappings_match?(expanded, effort_mappings_path)
   end
 
   defp relevant_watch_path?(_path, _snapshot), do: false
@@ -299,6 +309,12 @@ defmodule YoutrackWeb.RuntimeConfig.Server do
   defp workstreams_match?(_expanded, path) when path in [nil, ""], do: false
 
   defp workstreams_match?(expanded, path) do
+    expanded == Path.expand(path)
+  end
+
+  defp effort_mappings_match?(_expanded, path) when path in [nil, ""], do: false
+
+  defp effort_mappings_match?(expanded, path) do
     expanded == Path.expand(path)
   end
 

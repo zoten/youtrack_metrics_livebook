@@ -26,6 +26,7 @@ defmodule YoutrackWeb.Router do
     live("/pairing", PairingLive)
     live("/weekly-report", WeeklyReportLive)
     live("/workstreams", WorkstreamConfigLive)
+    live("/workstream-analyzer", WorkstreamAnalyzerLive)
   end
 
   # Other scopes may use custom stacks.

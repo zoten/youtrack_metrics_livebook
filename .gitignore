@@ -8,6 +8,8 @@ prompts/*
 
 # Workstream mapping (contains project-specific config)
 workstreams.yaml
+# Effort mapping (contains project-specific config)
+effort_mappings.yaml
 
 # Temporary/generated data
 tmp/

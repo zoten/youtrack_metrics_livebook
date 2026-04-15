@@ -109,6 +109,7 @@ dashboard_defaults = %{
   "include_substreams" => System.get_env("YOUTRACK_INCLUDE_SUBSTREAMS", "true"),
   "unplanned_tag" => System.get_env("YOUTRACK_UNPLANNED_TAG", "on the ankles"),
   "workstreams_path" => System.get_env("WORKSTREAMS_PATH", "../workstreams.yaml"),
+  "effort_mappings_path" => System.get_env("EFFORT_MAPPINGS_PATH", "../effort_mappings.yaml"),
   "prompts_path" => System.get_env("PROMPTS_PATH", "../prompts")
 }
 

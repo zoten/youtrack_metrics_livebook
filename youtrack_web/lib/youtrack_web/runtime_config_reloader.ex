@@ -1,6 +1,7 @@
 defmodule YoutrackWeb.RuntimeConfigReloader do
   @moduledoc false
 
+  alias YoutrackWeb.EffortMappingsLoader
   alias Youtrack.WorkstreamsLoader
 
   @dotenv_paths [
@@ -23,6 +24,7 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
     {"include_substreams", "YOUTRACK_INCLUDE_SUBSTREAMS", "true"},
     {"unplanned_tag", "YOUTRACK_UNPLANNED_TAG", "on the ankles"},
     {"workstreams_path", "WORKSTREAMS_PATH", "../workstreams.yaml"},
+    {"effort_mappings_path", "EFFORT_MAPPINGS_PATH", "../effort_mappings.yaml"},
     {"prompts_path", "PROMPTS_PATH", "../prompts"}
   ]
 
@@ -40,13 +42,18 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
       {workstream_rules, workstreams_path} =
         load_workstream_rules(Map.get(dashboard_defaults, "workstreams_path", ""))
 
+      {effort_mappings, effort_mappings_path} =
+        load_effort_mappings(Map.get(dashboard_defaults, "effort_mappings_path", ""))
+
       {:ok,
        %{
          dashboard_defaults: dashboard_defaults,
          cache_ttl_seconds: cache_ttl,
          report_prompt_files: csv_env("YOUTRACK_PROMPT_FILES", ""),
          workstream_rules: workstream_rules,
-         workstreams_path: workstreams_path
+         workstreams_path: workstreams_path,
+         effort_mappings: effort_mappings,
+         effort_mappings_path: effort_mappings_path
        }}
     end
   end
@@ -141,6 +148,17 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
     case WorkstreamsLoader.load_file(path) do
       {:ok, rules} -> {rules, path}
       {:error, _reason} -> {WorkstreamsLoader.empty_rules(), path}
+    end
+  end
+
+  defp load_effort_mappings("") do
+    EffortMappingsLoader.load_from_default_paths()
+  end
+
+  defp load_effort_mappings(path) do
+    case EffortMappingsLoader.load_file(path) do
+      {:ok, mappings} -> {mappings, path}
+      {:error, _reason} -> {EffortMappingsLoader.empty_mappings(), path}
     end
   end
 

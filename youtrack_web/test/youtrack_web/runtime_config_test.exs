@@ -16,6 +16,14 @@ defmodule YoutrackWeb.RuntimeConfigTest do
     assert RuntimeConfig.cache_ttl_seconds(server: server) == 42
     assert RuntimeConfig.report_prompt_files(server: server) == ["summary.md"]
     assert RuntimeConfig.workstreams_path(server: server) == "../workstreams.yaml"
+    assert RuntimeConfig.effort_mappings_path(server: server) == "../effort_mappings.yaml"
+
+    assert RuntimeConfig.effort_mappings(server: server) == %{
+             field_candidates: ["Story Points"],
+             rules: %{"Story Points" => %{type: :numeric, min: 0.0}},
+             fallback: %{strategy: :unmapped}
+           }
+
     assert RuntimeConfig.fetch(:missing_key, server: server) == :error
   end
 
@@ -49,6 +57,61 @@ defmodule YoutrackWeb.RuntimeConfigTest do
     assert reloaded.metadata.version == 2
     assert reloaded.metadata.reason == :manual
     assert RuntimeConfig.cache_ttl_seconds(server: server) == 90
+  end
+
+  test "reload updates effort mappings snapshot values" do
+    snapshots =
+      start_supervised!(
+        {Agent,
+         fn ->
+           [
+             snapshot_fixture(%{
+               effort_mappings_path: "../effort_mappings.yaml",
+               effort_mappings: %{
+                 field_candidates: ["Story Points"],
+                 rules: %{"Story Points" => %{type: :numeric, min: 0.0}},
+                 fallback: %{strategy: :unmapped}
+               }
+             }),
+             snapshot_fixture(%{
+               effort_mappings_path: "../effort_mappings_v2.yaml",
+               effort_mappings: %{
+                 field_candidates: ["Size"],
+                 rules: %{"Size" => %{type: :enum, map: %{"medium" => 3.0}}},
+                 fallback: %{strategy: :zero}
+               }
+             })
+           ]
+         end}
+      )
+
+    loader = fn ->
+      Agent.get_and_update(snapshots, fn
+        [next | rest] -> {{:ok, next}, rest}
+        [] -> {{:error, "no more snapshots"}, []}
+      end)
+    end
+
+    server = start_supervised!({Server, loader: loader, pubsub: nil, broadcast?: false})
+
+    assert RuntimeConfig.effort_mappings_path(server: server) == "../effort_mappings.yaml"
+
+    assert RuntimeConfig.effort_mappings(server: server) == %{
+             field_candidates: ["Story Points"],
+             rules: %{"Story Points" => %{type: :numeric, min: 0.0}},
+             fallback: %{strategy: :unmapped}
+           }
+
+    assert {:ok, reloaded} = RuntimeConfig.reload(server: server, reason: :manual)
+    assert reloaded.effort_mappings_path == "../effort_mappings_v2.yaml"
+
+    assert reloaded.effort_mappings == %{
+             field_candidates: ["Size"],
+             rules: %{"Size" => %{type: :enum, map: %{"medium" => 3.0}}},
+             fallback: %{strategy: :zero}
+           }
+
+    assert RuntimeConfig.effort_mappings_path(server: server) == "../effort_mappings_v2.yaml"
   end
 
   test "put and update serialize writes through the server" do
@@ -87,12 +150,19 @@ defmodule YoutrackWeb.RuntimeConfigTest do
           "base_query" => "project: TEST",
           "days_back" => "30",
           "workstreams_path" => "../workstreams.yaml",
+          "effort_mappings_path" => "../effort_mappings.yaml",
           "prompts_path" => "../prompts"
         },
         cache_ttl_seconds: 60,
         report_prompt_files: ["summary.md"],
         workstream_rules: %{fallback: ["(unclassified)"]},
-        workstreams_path: "../workstreams.yaml"
+        workstreams_path: "../workstreams.yaml",
+        effort_mappings_path: "../effort_mappings.yaml",
+        effort_mappings: %{
+          field_candidates: ["Story Points"],
+          rules: %{"Story Points" => %{type: :numeric, min: 0.0}},
+          fallback: %{strategy: :unmapped}
+        }
       },
       overrides
     )

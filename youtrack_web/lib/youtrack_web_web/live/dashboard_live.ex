@@ -234,6 +234,7 @@ defmodule YoutrackWeb.DashboardLive do
   defp section_path("weekly_report"), do: ~p"/weekly-report"
   defp section_path("card_focus"), do: ~p"/card"
   defp section_path("workstream_config"), do: ~p"/workstreams"
+  defp section_path("workstream_analyzer"), do: ~p"/workstream-analyzer"
   defp section_path(_), do: ~p"/flow-metrics"
 
   defp config_reload_message({:file_change, _paths}),

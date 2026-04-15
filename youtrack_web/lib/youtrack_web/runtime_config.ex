@@ -64,6 +64,14 @@ defmodule YoutrackWeb.RuntimeConfig do
     get(:workstreams_path, Keyword.put_new(opts, :default, nil))
   end
 
+  def effort_mappings(opts \\ []) do
+    get(:effort_mappings, Keyword.put_new(opts, :default, %{}))
+  end
+
+  def effort_mappings_path(opts \\ []) do
+    get(:effort_mappings_path, Keyword.put_new(opts, :default, nil))
+  end
+
   def metadata(opts \\ []) do
     get(:metadata, Keyword.put_new(opts, :default, %{}))
   end

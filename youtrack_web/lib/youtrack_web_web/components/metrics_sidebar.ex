@@ -143,6 +143,11 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
                 options={[{"Yes", "true"}, {"No", "false"}]}
               />
               <.input field={@config_form[:workstreams_path]} type="text" label="Workstreams path" />
+              <.input
+                field={@config_form[:effort_mappings_path]}
+                type="text"
+                label="Effort mappings path"
+              />
               <.input field={@config_form[:prompts_path]} type="text" label="Prompts path" />
             </.form>
           <% end %>
@@ -204,5 +209,6 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
   defp section_path("card_focus"), do: "/card"
   defp section_path("workstream_config"), do: "/workstreams"
   defp section_path("comparison"), do: "/compare"
+  defp section_path("workstream_analyzer"), do: "/workstream-analyzer"
   defp section_path(_), do: "/"
 end
