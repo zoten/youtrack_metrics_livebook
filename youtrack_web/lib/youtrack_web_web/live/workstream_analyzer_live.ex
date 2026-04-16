@@ -46,6 +46,7 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLive do
       |> assign(:chart_specs, %{})
       |> assign(:metrics, %{})
       |> assign(:normalization_diagnostics, %{})
+      |> assign(:composition_cards, %{})
       |> assign(:cached_work_items, [])
       |> assign(:cached_normalized_results, [])
       |> assign(:cached_rules, %{})
@@ -194,6 +195,7 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLive do
      |> assign(:cached_work_items, result.cached_work_items)
      |> assign(:cached_normalized_results, result.cached_normalized_results)
      |> assign(:cached_rules, result.cached_rules)
+     |> assign(:composition_cards, result.composition_cards)
      |> assign(:mode, result.mode)}
   end
 
@@ -378,7 +380,8 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLive do
        normalization_diagnostics: normalization.diagnostics,
        cached_work_items: work_items,
        cached_normalized_results: normalization.results,
-       cached_rules: rules
+       cached_rules: rules,
+       composition_cards: analysis.composition_cards
      }}
   rescue
     e -> {:error, Exception.message(e)}
@@ -663,6 +666,31 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLive do
             class="h-[28rem]"
             wrapper_class="md:col-span-2"
           />
+        <% end %>
+
+        <%= if @mode == "composition" and @parent_stream && map_size(@composition_cards) > 0 do %>
+          <div id="workstream-analyzer-composition-cards" class="metrics-card rounded-[2rem] p-6 md:col-span-2">
+            <p class="metrics-eyebrow text-xs uppercase tracking-[0.24em]">Card composition</p>
+            <div class="mt-4 space-y-4">
+              <%= for {bucket, issue_ids} <- Enum.sort_by(@composition_cards, fn {bucket, _} -> {bucket != "(direct)", bucket} end) do %>
+                <div>
+                  <p class="metrics-copy mb-2 text-sm font-medium">{bucket}</p>
+                  <div class="flex flex-wrap gap-2">
+                    <%= for issue_id <- issue_ids do %>
+                      <a
+                        href={"https://#{@config["base_url"]}/youtrack/issue/#{issue_id}"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="metrics-pill metrics-pill-accent px-3 py-2 text-xs tracking-normal hover:underline"
+                      >
+                        {issue_id}
+                      </a>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+          </div>
         <% end %>
 
         <div id="workstream-analyzer-diagnostics" class="metrics-card rounded-[2rem] p-6">

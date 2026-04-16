@@ -107,7 +107,8 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLiveTest do
           },
           cached_work_items: [%{issue_id: "PROJ-1", stream: "Backend", start_at: 1, end_at: 2}],
           cached_normalized_results: [%{issue_id: "PROJ-1", status: :mapped, score: 3.0}],
-          cached_rules: %{}
+          cached_rules: %{},
+          composition_cards: %{}
         }}}
     )
 
@@ -152,7 +153,8 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLiveTest do
             %{issue_id: "PROJ-1", status: :mapped, score: 3.0},
             %{issue_id: "PROJ-2", status: :mapped, score: 5.0}
           ],
-          cached_rules: %{}
+          cached_rules: %{},
+          composition_cards: %{}
         }}}
     )
 

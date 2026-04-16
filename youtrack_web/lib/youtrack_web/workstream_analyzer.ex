@@ -79,10 +79,14 @@ defmodule YoutrackWeb.WorkstreamAnalyzer do
       end)
       |> Enum.sort_by(& &1.week)
 
+    composition_cards =
+      build_composition_cards(contributions, rules, parent_stream, direct_bucket)
+
     %{
       compare_series: compare_series,
       composition_series: composition_series,
       composition_totals: composition_totals,
+      composition_cards: composition_cards,
       diagnostics: %{
         normalized_issue_count: length(mapped_results),
         attributed_issue_count:
@@ -272,4 +276,21 @@ defmodule YoutrackWeb.WorkstreamAnalyzer do
 
   defp parse_ms(value) when is_integer(value), do: value
   defp parse_ms(_), do: nil
+
+  defp build_composition_cards(_contributions, _rules, nil, _direct_bucket), do: %{}
+
+  defp build_composition_cards(contributions, rules, parent_stream, direct_bucket) do
+    descendants = descendants_of(rules, parent_stream)
+
+    contributions
+    |> Enum.reduce(%{}, fn row, acc ->
+      case bucket_for_stream(row.stream, parent_stream, descendants, direct_bucket) do
+        nil -> acc
+        bucket -> Map.update(acc, bucket, MapSet.new([row.issue_id]), &MapSet.put(&1, row.issue_id))
+      end
+    end)
+    |> Map.new(fn {bucket, set} ->
+      {bucket, set |> MapSet.to_list() |> Enum.sort()}
+    end)
+  end
 end
