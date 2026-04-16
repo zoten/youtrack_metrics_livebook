@@ -36,7 +36,7 @@ defmodule YoutrackWeb.WorkstreamAnalyzer do
     direct_bucket = Keyword.get(opts, :direct_bucket, "(direct)")
 
     issue_windows = issue_windows(work_items, now_ms)
-    issue_streams = issue_streams(work_items)
+    issue_streams = issue_streams(work_items, rules)
 
     mapped_results =
       normalized_results
@@ -115,7 +115,12 @@ defmodule YoutrackWeb.WorkstreamAnalyzer do
     end)
   end
 
-  defp issue_streams(work_items) do
+  defp issue_streams(work_items, rules) do
+    # When include_substreams is true, WorkItems.build creates work items for both
+    # child streams and their parent streams for the same issue. We prefer the child
+    # (substream) stream over the parent so that composition bucketing works correctly.
+    substream_keys = rules |> Map.get(:substream_of, %{}) |> Map.keys() |> MapSet.new()
+
     work_items
     |> Enum.group_by(& &1.issue_id)
     |> Map.new(fn {issue_id, items} ->
@@ -124,7 +129,11 @@ defmodule YoutrackWeb.WorkstreamAnalyzer do
         |> Enum.map(&(&1.stream || ""))
         |> Enum.reject(&(&1 == ""))
         |> Enum.frequencies()
-        |> Enum.sort_by(fn {stream_name, count} -> {-count, stream_name} end)
+        |> Enum.sort_by(fn {stream_name, count} ->
+          # Prefer higher frequency, then prefer substream children over parents, then alphabetical
+          is_parent = if MapSet.member?(substream_keys, stream_name), do: 0, else: 1
+          {-count, is_parent, stream_name}
+        end)
         |> List.first()
         |> case do
           {stream_name, _} -> stream_name

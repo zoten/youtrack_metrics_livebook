@@ -208,6 +208,45 @@ defmodule YoutrackWeb.WorkstreamAnalyzerTest do
     assert result.diagnostics.attributed_issue_count == 2
   end
 
+  test "composition mode prefers substream over parent when include_substreams creates duplicate work items" do
+    # When WorkItems.build runs with include_substreams: true, a PBDX issue gets
+    # work items for BOTH "PBDX" and "AFR". Previously, issue_streams picked "AFR"
+    # (alphabetically first), causing all substream issues to appear as "(direct)".
+    work_items = [
+      %{
+        issue_id: "PBDX-1",
+        stream: "PBDX",
+        start_at: dt_ms(~U[2024-06-03 09:00:00Z]),
+        end_at: dt_ms(~U[2024-06-03 18:00:00Z]),
+        status: "finished"
+      },
+      %{
+        issue_id: "PBDX-1",
+        stream: "AFR",
+        start_at: dt_ms(~U[2024-06-03 09:00:00Z]),
+        end_at: dt_ms(~U[2024-06-03 18:00:00Z]),
+        status: "finished"
+      }
+    ]
+
+    normalized_results = [
+      %{issue_id: "PBDX-1", status: :mapped, score: 5.0, reason: :mapped}
+    ]
+
+    rules = %{substream_of: %{"PBDX" => ["AFR"], "CBDX" => ["AFR"]}}
+
+    result =
+      WorkstreamAnalyzer.build(work_items, normalized_results, rules, parent_stream: "AFR")
+
+    # PBDX-1 must appear under "PBDX", not "(direct)"
+    buckets = result.composition_series |> Enum.map(& &1.substream) |> Enum.uniq()
+    assert buckets == ["PBDX"]
+    refute "(direct)" in buckets
+
+    total = result.composition_totals |> Enum.map(& &1.total_effort) |> Enum.sum()
+    assert_in_delta total, 5.0, 0.000001
+  end
+
   defp issue_fixture(issue_id, field_values) do
     custom_fields =
       Enum.map(field_values, fn {field_name, value} ->
