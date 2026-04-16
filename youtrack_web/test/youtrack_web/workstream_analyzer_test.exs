@@ -247,6 +247,88 @@ defmodule YoutrackWeb.WorkstreamAnalyzerTest do
     assert_in_delta total, 5.0, 0.000001
   end
 
+  test "composition mode correctly isolates multiple independent hierarchies" do
+    # This test reproduces the issue: when there are two separate parent hierarchies,
+    # descendants of one parent should not appear under the other parent.
+    # Hierarchy 1: AFR > {PBDX, CBDX, FFA, ANAGRAFICA}
+    # Hierarchy 2: SUPPORT > {ACTUARIAL-L2}
+
+    work_items = [
+      %{
+        issue_id: "PBDX-100",
+        stream: "PBDX",
+        start_at: dt_ms(~U[2024-06-03 09:00:00Z]),
+        end_at: dt_ms(~U[2024-06-03 18:00:00Z]),
+        status: "finished"
+      },
+      %{
+        issue_id: "FFA-200",
+        stream: "FFA",
+        start_at: dt_ms(~U[2024-06-03 09:00:00Z]),
+        end_at: dt_ms(~U[2024-06-03 18:00:00Z]),
+        status: "finished"
+      },
+      %{
+        issue_id: "ANAGRAFICA-300",
+        stream: "ANAGRAFICA",
+        start_at: dt_ms(~U[2024-06-03 09:00:00Z]),
+        end_at: dt_ms(~U[2024-06-03 18:00:00Z]),
+        status: "finished"
+      },
+      %{
+        issue_id: "ACT-400",
+        stream: "ACTUARIAL-L2",
+        start_at: dt_ms(~U[2024-06-03 09:00:00Z]),
+        end_at: dt_ms(~U[2024-06-03 18:00:00Z]),
+        status: "finished"
+      }
+    ]
+
+    normalized_results = [
+      %{issue_id: "PBDX-100", status: :mapped, score: 5.0, reason: :mapped},
+      %{issue_id: "FFA-200", status: :mapped, score: 2.0, reason: :mapped},
+      %{issue_id: "ANAGRAFICA-300", status: :mapped, score: 3.0, reason: :mapped},
+      %{issue_id: "ACT-400", status: :mapped, score: 4.0, reason: :mapped}
+    ]
+
+    rules = %{
+      substream_of: %{
+        "PBDX" => ["AFR"],
+        "CBDX" => ["AFR"],
+        "FFA" => ["AFR"],
+        "ANAGRAFICA" => ["AFR"],
+        "ACTUARIAL-L2" => ["SUPPORT"]
+      }
+    }
+
+    # Test 1: When viewing AFR composition, only AFR's children should appear
+    result_afr =
+      WorkstreamAnalyzer.build(work_items, normalized_results, rules, parent_stream: "AFR")
+
+    buckets_afr = result_afr.composition_series |> Enum.map(& &1.substream) |> Enum.uniq()
+
+    # All AFR children should appear
+    assert "PBDX" in buckets_afr
+    assert "FFA" in buckets_afr
+    assert "ANAGRAFICA" in buckets_afr
+    # ACTUARIAL-L2 should NOT appear (it belongs to SUPPORT, not AFR)
+    assert "ACTUARIAL-L2" not in buckets_afr
+
+    # Test 2: When viewing SUPPORT composition, only ACTUARIAL-L2 should appear
+    result_support =
+      WorkstreamAnalyzer.build(work_items, normalized_results, rules, parent_stream: "SUPPORT")
+
+    buckets_support =
+      result_support.composition_series |> Enum.map(& &1.substream) |> Enum.uniq()
+
+    # Only SUPPORT's child should appear
+    assert "ACTUARIAL-L2" in buckets_support
+    # AFR's children should NOT appear (they belong to AFR, not SUPPORT)
+    assert "PBDX" not in buckets_support
+    assert "FFA" not in buckets_support
+    assert "ANAGRAFICA" not in buckets_support
+  end
+
   defp issue_fixture(issue_id, field_values) do
     custom_fields =
       Enum.map(field_values, fn {field_name, value} ->

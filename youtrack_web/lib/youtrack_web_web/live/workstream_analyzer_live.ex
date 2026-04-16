@@ -408,6 +408,7 @@ defmodule YoutrackWeb.WorkstreamAnalyzerLive do
       socket
       |> assign(:chart_specs, WorkstreamAnalyzerCharts.build_chart_specs(analysis))
       |> assign(:metrics, metrics)
+      |> assign(:composition_cards, analysis.composition_cards)
     end
   end
 
