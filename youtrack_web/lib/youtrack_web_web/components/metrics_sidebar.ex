@@ -53,9 +53,6 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
                     {section.visuals}
                   </p>
                 </div>
-                <span class="metrics-pill metrics-pill-success px-2 py-1 text-[11px]">
-                  {section.stage}
-                </span>
               </div>
             </.link>
           <% end %>

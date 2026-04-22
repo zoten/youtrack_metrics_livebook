@@ -1,4 +1,6 @@
 defmodule Youtrack.WorkstreamsLoader do
+  alias Youtrack.Workstreams
+
   @moduledoc """
   Loads workstream mappings from YAML configuration files.
 
@@ -74,19 +76,21 @@ defmodule Youtrack.WorkstreamsLoader do
         slugs_acc =
           (config["slugs"] || [])
           |> Enum.reduce(slugs_acc, fn slug, acc ->
-            Map.put(acc, slug, stream_list)
+            # Normalize slug key to match lookup behavior in Workstreams.streams_for_issue/3
+            normalized_slug = Workstreams.normalize_slug(slug)
+            put_stream(acc, normalized_slug, stream_list)
           end)
 
         tags_acc =
           (config["tags"] || [])
           |> Enum.reduce(tags_acc, fn tag, acc ->
-            Map.put(acc, String.upcase(tag), stream_list)
+            put_stream(acc, String.upcase(tag), stream_list)
           end)
 
         types_acc =
           (config["types"] || [])
           |> Enum.reduce(types_acc, fn type, acc ->
-            Map.put(acc, type, stream_list)
+            put_stream(acc, type, stream_list)
           end)
 
         sub_acc =
@@ -106,6 +110,14 @@ defmodule Youtrack.WorkstreamsLoader do
       substream_of: substream_map,
       fallback: ["(unclassified)"]
     }
+  end
+
+  # Private helper to accumulate multiple workstreams for the same slug/tag/type.
+  # When two workstreams share the same key, both are preserved in the list.
+  defp put_stream(map, key, stream_list) do
+    Map.update(map, key, stream_list, fn existing ->
+      (existing ++ stream_list) |> Enum.uniq()
+    end)
   end
 
   @doc """
@@ -158,7 +170,9 @@ defmodule Youtrack.WorkstreamsLoader do
   """
   def load_raw_from_default_paths do
     case find_default_path() do
-      nil -> {:error, :not_found}
+      nil ->
+        {:error, :not_found}
+
       path ->
         case load_file_raw(path) do
           {:ok, content} -> {:ok, content, path}
@@ -196,7 +210,8 @@ defmodule Youtrack.WorkstreamsLoader do
 
   Returns `{:ok, rules, yaml_string}` or `{:error, reason}`.
   """
-  def add_slug_to_stream(slug, stream, path) when is_binary(slug) and is_binary(stream) and is_binary(path) do
+  def add_slug_to_stream(slug, stream, path)
+      when is_binary(slug) and is_binary(stream) and is_binary(path) do
     normalized_slug = slug |> String.trim() |> String.upcase() |> String.replace(~r/\s+/, " ")
     normalized_stream = String.trim(stream)
 
@@ -251,8 +266,12 @@ defmodule Youtrack.WorkstreamsLoader do
       field_order
       |> Enum.flat_map(fn field ->
         case config[field] do
-          nil -> []
-          [] -> []
+          nil ->
+            []
+
+          [] ->
+            []
+
           items when is_list(items) ->
             sorted = Enum.sort(items)
             ["  #{field}:"] ++ Enum.map(sorted, &"    - #{yaml_scalar(&1)}")
@@ -271,8 +290,27 @@ defmodule Youtrack.WorkstreamsLoader do
   # Quotes a scalar value if it contains characters that need quoting in YAML.
   defp yaml_scalar(value) when is_binary(value) do
     needs_quoting =
-      String.contains?(value, [":", "#", "[", "]", "{", "}", ",", "&", "*", "?", "|", "-",
-                                "<", ">", "=", "!", "%", "@", "`"]) or
+      String.contains?(value, [
+        ":",
+        "#",
+        "[",
+        "]",
+        "{",
+        "}",
+        ",",
+        "&",
+        "*",
+        "?",
+        "|",
+        "-",
+        "<",
+        ">",
+        "=",
+        "!",
+        "%",
+        "@",
+        "`"
+      ]) or
         String.starts_with?(value, [" ", "\"", "'"]) or
         String.ends_with?(value, [" "])
 

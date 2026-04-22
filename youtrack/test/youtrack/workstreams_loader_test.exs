@@ -96,6 +96,68 @@ defmodule Youtrack.WorkstreamsLoaderTest do
       assert Map.has_key?(rules.tag_to_stream, "SEC:ISSUE")
       refute Map.has_key?(rules.tag_to_stream, "sec:app")
     end
+
+    test "normalizes mixed-case multi-word slugs to match streams_for_issue lookup" do
+      yaml = %{
+        "PBDX" => %{
+          "slugs" => ["Premiums Bordereaux", "Premiums BDX", "KPI Dashboard"]
+        }
+      }
+
+      rules = WorkstreamsLoader.transform_to_internal(yaml)
+
+      # Slugs should be normalized (uppercase, whitespace collapsed)
+      assert rules.slug_prefix_to_stream["PREMIUMS BORDEREAUX"] == ["PBDX"]
+      assert rules.slug_prefix_to_stream["PREMIUMS BDX"] == ["PBDX"]
+      assert rules.slug_prefix_to_stream["KPI DASHBOARD"] == ["PBDX"]
+
+      # Original non-normalized keys should NOT exist
+      refute Map.has_key?(rules.slug_prefix_to_stream, "Premiums Bordereaux")
+      refute Map.has_key?(rules.slug_prefix_to_stream, "Premiums BDX")
+      refute Map.has_key?(rules.slug_prefix_to_stream, "KPI Dashboard")
+    end
+
+    test "accumulates multiple workstreams for the same slug (no overwrite)" do
+      yaml = %{
+        "PBR" => %{
+          "slugs" => ["PBR", "ANGELA"]
+        },
+        "PBR-IT" => %{
+          "slugs" => ["PBR", "ANGELA"]
+        }
+      }
+
+      rules = WorkstreamsLoader.transform_to_internal(yaml)
+
+      # Both workstreams should be present (in any order)
+      pbr_streams = rules.slug_prefix_to_stream["PBR"]
+      assert "PBR" in pbr_streams
+      assert "PBR-IT" in pbr_streams
+      assert length(pbr_streams) == 2
+
+      angela_streams = rules.slug_prefix_to_stream["ANGELA"]
+      assert "PBR" in angela_streams
+      assert "PBR-IT" in angela_streams
+      assert length(angela_streams) == 2
+    end
+
+    test "accumulates multiple workstreams for the same tag (no overwrite)" do
+      yaml = %{
+        "PBR" => %{
+          "tags" => ["app:oscar"]
+        },
+        "PBR-IT" => %{
+          "tags" => ["app:oscar"]
+        }
+      }
+
+      rules = WorkstreamsLoader.transform_to_internal(yaml)
+
+      streams = rules.tag_to_stream["APP:OSCAR"]
+      assert "PBR" in streams
+      assert "PBR-IT" in streams
+      assert length(streams) == 2
+    end
   end
 
   describe "empty_rules/0" do

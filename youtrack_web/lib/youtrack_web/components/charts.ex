@@ -79,7 +79,7 @@ defmodule YoutrackWeb.Components.Charts do
     ~H"""
     <details
       id={"#{@id}-card"}
-      class={["metrics-card rounded-4xl p-4 group/card", @wrapper_class]}
+      class={["metrics-card rounded-4xl p-4 group/card overflow-hidden", @wrapper_class]}
       open
       phx-hook=".ChartCollapse"
     >
