@@ -37,7 +37,7 @@ defmodule YoutrackWeb.Components.Charts do
       id={@id}
       phx-hook="VegaLite"
       data-spec={@spec_json}
-      class={["metrics-chart min-w-0 overflow-hidden", @class]}
+      class={["metrics-chart min-w-0 w-full max-w-full overflow-hidden", @class]}
     >
       <div class="metrics-chart-loading flex h-full items-center justify-center">
         <span>Loading chart...</span>
@@ -79,7 +79,7 @@ defmodule YoutrackWeb.Components.Charts do
     ~H"""
     <details
       id={"#{@id}-card"}
-      class={["metrics-card rounded-4xl p-4 group/card overflow-hidden", @wrapper_class]}
+      class={["metrics-card min-w-0 max-w-full rounded-4xl p-4 group/card overflow-hidden", @wrapper_class]}
       open
       phx-hook=".ChartCollapse"
     >

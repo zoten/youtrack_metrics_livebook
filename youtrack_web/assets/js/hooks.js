@@ -69,7 +69,7 @@ export default {
                 }
             }
             if (specObj.autosize == null) {
-                specObj.autosize = { type: "fit", contains: "padding" }
+                specObj.autosize = { type: "fit", contains: "padding", resize: true }
             }
             const options = {
                 actions: {

@@ -547,7 +547,7 @@ defmodule YoutrackWeb.GanttLive do
               <.chart_toc title="Gantt Charts" items={chart_nav_items()} />
             </div>
 
-            <div class="grid gap-6 md:grid-cols-2">
+            <div class="grid min-w-0 gap-6 md:grid-cols-2">
               <.chart_card
                 id="gantt-main-chart"
                 title="Team Gantt"

@@ -415,6 +415,23 @@ body {
   color: var(--metrics-muted);
 }
 
+.metrics-chart {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.metrics-chart .vega-embed {
+  max-width: none;
+}
+
+.metrics-chart .vega-actions {
+  right: 0.5rem;
+}
+
 .metrics-tab-active {
   border-color: color-mix(in oklab, var(--metrics-accent) 48%, transparent);
   background: color-mix(in oklab, var(--metrics-accent) 12%, transparent);
