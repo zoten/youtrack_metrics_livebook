@@ -155,7 +155,7 @@ defmodule YoutrackWeb.DashboardLive do
                         <p class="metrics-copy mt-2 text-sm leading-6">{section.description}</p>
                       </div>
                       <span class="metrics-pill metrics-pill-success px-2 py-1 text-[11px]">
-                        {section.stage}
+                        {Map.get(section, :stage, "Live")}
                       </span>
                     </div>
                     <div class="mt-4 flex flex-wrap gap-2">

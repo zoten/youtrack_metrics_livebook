@@ -126,6 +126,12 @@ defmodule YoutrackWeb.Components.MetricsSidebar do
                 label="In-progress states (CSV)"
               />
               <.input field={@config_form[:done_state_names]} type="text" label="Done states (CSV)" />
+              <.input
+                field={@config_form[:report_inactive_states]}
+                type="text"
+                label="Inactive states (CSV)"
+              />
+              <.input field={@config_form[:sprint_field]} type="text" label="Sprint field" />
               <.input field={@config_form[:unplanned_tag]} type="text" label="Unplanned tag" />
               <.input
                 field={@config_form[:use_activities]}

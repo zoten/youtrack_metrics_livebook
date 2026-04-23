@@ -183,4 +183,67 @@ defmodule Youtrack.CardFocusTest do
     assert seg2.start_ms == 6_000
     assert seg2.end_ms == 9_000
   end
+
+  test "splits state segments when sprint assignment changes" do
+    issue = %{
+      "idReadable" => "T-3",
+      "id" => "3-3",
+      "summary" => "Sprint-aware segmentation",
+      "description" => nil,
+      "created" => 1_000,
+      "updated" => 10_000,
+      "resolved" => 10_000,
+      "project" => %{"shortName" => "T"},
+      "type" => %{"name" => "Task"},
+      "tags" => [],
+      "comments" => [],
+      "customFields" => [
+        %{"name" => "State", "value" => %{"name" => "Done"}},
+        %{"name" => "Sprint", "value" => nil}
+      ]
+    }
+
+    activities = [
+      %{
+        "field" => %{"name" => "State"},
+        "added" => [%{"name" => "In Progress"}],
+        "removed" => [%{"name" => "To Do"}],
+        "timestamp" => 2_000,
+        "author" => %{"name" => "Alice"}
+      },
+      %{
+        "field" => %{"name" => "Sprint"},
+        "added" => [%{"name" => "Sprint 15"}],
+        "removed" => [],
+        "timestamp" => 4_000,
+        "author" => %{"name" => "Planner"}
+      },
+      %{
+        "field" => %{"name" => "State"},
+        "added" => [%{"name" => "Done"}],
+        "removed" => [%{"name" => "In Progress"}],
+        "timestamp" => 8_000,
+        "author" => %{"name" => "Alice"}
+      }
+    ]
+
+    result =
+      CardFocus.build(
+        issue,
+        activities,
+        state_field: "State",
+        assignees_field: "Assignee",
+        inactive_names: ["To Do"],
+        done_names: ["Done"],
+        sprint_field: "Sprint"
+      )
+
+    assert Enum.map(result.state_segments, &{&1.state, &1.start_ms, &1.end_ms, &1.has_sprint?}) ==
+             [
+               {"To Do", 1_000, 2_000, false},
+               {"In Progress", 2_000, 4_000, false},
+               {"In Progress", 4_000, 8_000, true},
+               {"Done", 8_000, 10_000, true}
+             ]
+  end
 end

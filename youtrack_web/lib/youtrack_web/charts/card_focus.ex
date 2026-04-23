@@ -10,6 +10,7 @@ defmodule YoutrackWeb.Charts.CardFocus do
         %{
           track: "State",
           label: segment.state,
+          sprint: sprint_label(segment),
           start: to_iso8601(segment.start_ms),
           end: to_iso8601(segment.end_ms),
           duration_hours: Float.round(segment.duration_ms / 3_600_000, 2)
@@ -29,6 +30,7 @@ defmodule YoutrackWeb.Charts.CardFocus do
         %{
           track: "Activity",
           label: segment.label,
+          sprint: "N/A",
           start: to_iso8601(segment.start_ms),
           end: to_iso8601(segment.end_ms),
           duration_hours: Float.round(segment.duration_ms / 3_600_000, 2)
@@ -47,6 +49,7 @@ defmodule YoutrackWeb.Charts.CardFocus do
 
     shared_tooltip = [
       %{"field" => "label", "type" => "nominal", "title" => "Label"},
+      %{"field" => "sprint", "type" => "nominal", "title" => "Sprint"},
       %{"field" => "start", "type" => "temporal", "title" => "Start", "format" => "%b %d %H:%M"},
       %{"field" => "end", "type" => "temporal", "title" => "End", "format" => "%b %d %H:%M"},
       %{"field" => "duration_hours", "type" => "quantitative", "title" => "Duration (h)"}
@@ -148,5 +151,15 @@ defmodule YoutrackWeb.Charts.CardFocus do
     timestamp_ms
     |> DateTime.from_unix!(:millisecond)
     |> DateTime.to_iso8601()
+  end
+
+  defp sprint_label(segment) do
+    sprint_names = Map.get(segment, :sprint_names, [])
+
+    if sprint_names == [] do
+      "No sprint"
+    else
+      Enum.join(sprint_names, ", ")
+    end
   end
 end

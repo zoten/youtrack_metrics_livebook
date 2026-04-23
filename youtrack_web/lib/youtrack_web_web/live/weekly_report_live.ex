@@ -465,7 +465,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     last_working_day = Date.from_iso8601!(config["report_last_working_day"])
 
     in_progress_names = csv_list(config["in_progress_names"])
-    inactive_names = csv_list(config["report_inactive_states"])
+    inactive_names = csv_list(config["inactive_states"])
     done_names = csv_list(config["report_done_states"])
     special_tags = csv_list(config["report_special_tags"])
     hold_tags = csv_list(config["report_hold_tags"])
@@ -763,7 +763,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     |> Map.put_new("report_week_start", Date.to_iso8601(last_week_start_default))
     |> Map.put_new("report_week_end", Date.to_iso8601(last_week_end_default))
     |> Map.put_new("report_last_working_day", Date.to_iso8601(last_working_day_default))
-    |> Map.put_new("report_inactive_states", "To Do, Todo")
+    |> Map.put_new("inactive_states", "To Do, Todo")
     |> Map.put_new("report_done_states", "Done, Won't Do")
     |> Map.put_new("report_special_tags", "on hold, blocked, to be specified")
     |> Map.put_new("report_hold_tags", "on hold, blocked")
@@ -888,7 +888,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
                       label="Last working day (ISO)"
                     />
                     <.input
-                      field={@config_form[:report_inactive_states]}
+                      field={@config_form[:inactive_states]}
                       type="text"
                       label="Inactive states (CSV)"
                     />

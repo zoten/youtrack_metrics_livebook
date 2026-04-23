@@ -10,6 +10,7 @@ defmodule YoutrackWeb.CardFocusLive do
   alias Youtrack.WeeklyReport
   alias Youtrack.Workstreams
   alias Youtrack.WorkstreamsLoader
+  alias YoutrackWeb.CardTimelineFiltersPreference
   alias YoutrackWeb.Charts.CardFocus, as: CardFocusCharts
   alias YoutrackWeb.Configuration
   alias YoutrackWeb.ConfigVisibilityPreference
@@ -39,6 +40,7 @@ defmodule YoutrackWeb.CardFocusLive do
       |> Configuration.merge_shared(Configuration.shared_from_socket(socket))
 
     config_open? = ConfigVisibilityPreference.from_socket(socket)
+    timeline_filters = CardTimelineFiltersPreference.from_socket(socket)
     issue_id = normalize_issue_id(params["issue_id"])
 
     if connected?(socket) do
@@ -62,7 +64,10 @@ defmodule YoutrackWeb.CardFocusLive do
      |> assign(:issue_id, issue_id)
      |> assign(:lookup_form, to_form(%{"issue_id" => issue_id || ""}, as: :lookup))
      |> assign(:lookup_error, nil)
-     |> assign(:card_data, nil)}
+     |> assign(:card_data, nil)
+     |> assign(:filtered_card_data, nil)
+     |> assign(:exclude_todo?, timeline_filters.exclude_todo?)
+     |> assign(:exclude_no_sprint?, timeline_filters.exclude_no_sprint?)}
   end
 
   @impl true
@@ -82,7 +87,36 @@ defmodule YoutrackWeb.CardFocusLive do
     {:noreply,
      socket
      |> assign(:config, config)
-     |> assign(:config_form, to_form(config, as: :config))}
+     |> assign(:config_form, to_form(config, as: :config))
+     |> with_filtered_card_data()}
+  end
+
+  @impl true
+  def handle_event("toggle_exclude_todo", _params, socket) do
+    exclude_todo? = !socket.assigns.exclude_todo?
+
+    {:noreply,
+     socket
+     |> assign(:exclude_todo?, exclude_todo?)
+     |> with_filtered_card_data()
+     |> push_event("card_timeline_filters_changed", %{
+       exclude_todo: exclude_todo?,
+       exclude_no_sprint: socket.assigns.exclude_no_sprint?
+     })}
+  end
+
+  @impl true
+  def handle_event("toggle_exclude_no_sprint", _params, socket) do
+    exclude_no_sprint? = !socket.assigns.exclude_no_sprint?
+
+    {:noreply,
+     socket
+     |> assign(:exclude_no_sprint?, exclude_no_sprint?)
+     |> with_filtered_card_data()
+     |> push_event("card_timeline_filters_changed", %{
+       exclude_todo: socket.assigns.exclude_todo?,
+       exclude_no_sprint: exclude_no_sprint?
+     })}
   end
 
   @impl true
@@ -142,6 +176,7 @@ defmodule YoutrackWeb.CardFocusLive do
          socket
          |> assign(:config, defaults)
          |> assign(:config_form, to_form(defaults, as: :config))
+         |> with_filtered_card_data()
          |> put_flash(:info, "Reloaded .env and workstreams.yaml")}
 
       {:error, reason} ->
@@ -178,7 +213,8 @@ defmodule YoutrackWeb.CardFocusLive do
      socket
      |> assign(:loading?, false)
      |> assign(:card_data, result.card_data)
-     |> assign(:fetch_cache_state, result.fetch_cache_state)}
+     |> assign(:fetch_cache_state, result.fetch_cache_state)
+     |> with_filtered_card_data()}
   end
 
   @impl true
@@ -208,6 +244,7 @@ defmodule YoutrackWeb.CardFocusLive do
      socket
      |> assign(:config, config)
      |> assign(:config_form, to_form(config, as: :config))
+     |> with_filtered_card_data()
      |> put_flash(:info, config_reload_message(payload[:reason]))}
   end
 
@@ -388,6 +425,7 @@ defmodule YoutrackWeb.CardFocusLive do
         </div>
 
         <%= if @card_data do %>
+          <% timeline_card_data = @filtered_card_data || @card_data %>
           <section id="card-focus-summary" class="space-y-6">
             <div class="metrics-card rounded-[2rem] p-6 space-y-5">
               <div class="flex flex-wrap items-start justify-between gap-4">
@@ -448,17 +486,47 @@ defmodule YoutrackWeb.CardFocusLive do
                   </p>
                 </div>
 
+                <div id="card-focus-timeline-filters" class="flex flex-wrap items-center gap-2">
+                  <button
+                    id="card-focus-toggle-exclude-todo"
+                    type="button"
+                    phx-click="toggle_exclude_todo"
+                    aria-pressed={to_string(@exclude_todo?)}
+                    class={[
+                      "metrics-button rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition",
+                      @exclude_todo? && "metrics-button-primary",
+                      !@exclude_todo? && "metrics-button-ghost"
+                    ]}
+                  >
+                    Exclude Todo
+                  </button>
+
+                  <button
+                    id="card-focus-toggle-exclude-no-sprint"
+                    type="button"
+                    phx-click="toggle_exclude_no_sprint"
+                    aria-pressed={to_string(@exclude_no_sprint?)}
+                    class={[
+                      "metrics-button rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition",
+                      @exclude_no_sprint? && "metrics-button-primary",
+                      !@exclude_no_sprint? && "metrics-button-ghost"
+                    ]}
+                  >
+                    Exclude No Sprint
+                  </button>
+                </div>
+
                 <.chart_card
                   id="card-focus-state-gantt"
                   title="State & activity timeline"
                   description="Gantt view of state transitions, active periods, and interruptions."
-                  spec={CardFocusCharts.state_timeline_spec(@card_data)}
+                  spec={CardFocusCharts.state_timeline_spec(timeline_card_data)}
                   class="h-80"
                   wrapper_class="p-4"
                 />
 
                 <div class="grid gap-3 md:grid-cols-2">
-                  <%= for segment <- @card_data.active_segments do %>
+                  <%= for segment <- timeline_card_data.active_segments do %>
                     <div class="metrics-subtle-panel rounded-2xl p-3">
                       <p class="metrics-title text-sm font-semibold">{segment.label}</p>
                       <p class="metrics-copy mt-1 text-xs leading-5">
@@ -676,6 +744,8 @@ defmodule YoutrackWeb.CardFocusLive do
     assignees_field = String.trim(config["assignees_field"] || "Assignee")
     done_names = csv_list(config["done_state_names"])
     in_progress_names = csv_list(config["in_progress_names"])
+    inactive_names = csv_list(config["report_inactive_states"])
+    sprint_field = String.trim(config["sprint_field"] || "Sprint")
     include_substreams? = parse_bool(config["include_substreams"])
     workstreams_path = String.trim(config["workstreams_path"] || "")
 
@@ -708,8 +778,9 @@ defmodule YoutrackWeb.CardFocusLive do
         state_field: state_field,
         assignees_field: assignees_field,
         in_progress_names: default_if_empty(in_progress_names, ["In Progress"]),
-        inactive_names: ["To Do", "Todo", "Open", "Backlog"],
+        inactive_names: default_if_empty(inactive_names, ["To Do", "Todo"]),
         done_names: default_if_empty(done_names, ["Done", "Won't Do"]),
+        sprint_field: sprint_field,
         hold_tags: ["on hold", "blocked"],
         workstreams: workstreams
       )
@@ -858,6 +929,97 @@ defmodule YoutrackWeb.CardFocusLive do
 
   defp parse_bool(value) when value in [true, "true", "TRUE", "1", 1], do: true
   defp parse_bool(_value), do: false
+
+  defp with_filtered_card_data(socket) do
+    filtered_card_data =
+      apply_timeline_filters(
+        socket.assigns.card_data,
+        socket.assigns.config,
+        socket.assigns.exclude_todo?,
+        socket.assigns.exclude_no_sprint?
+      )
+
+    assign(socket, :filtered_card_data, filtered_card_data)
+  end
+
+  defp apply_timeline_filters(nil, _config, _exclude_todo?, _exclude_no_sprint?), do: nil
+
+  defp apply_timeline_filters(card_data, config, exclude_todo?, exclude_no_sprint?) do
+    todo_states =
+      config
+      |> Map.get("report_inactive_states", "To Do,Todo")
+      |> csv_list()
+      |> default_if_empty(["To Do", "Todo"])
+      |> Enum.map(&String.downcase/1)
+
+    filtered_state_segments =
+      Enum.filter(card_data.state_segments, fn segment ->
+        keep_todo? =
+          if exclude_todo? do
+            String.downcase(segment.state || "") not in todo_states
+          else
+            true
+          end
+
+        keep_sprint? =
+          if exclude_no_sprint? do
+            Map.get(segment, :has_sprint?, true)
+          else
+            true
+          end
+
+        keep_todo? and keep_sprint?
+      end)
+
+    keep_intervals =
+      Enum.map(filtered_state_segments, fn segment ->
+        %{start_ms: segment.start_ms, end_ms: segment.end_ms}
+      end)
+
+    filtered_active_segments = clip_intervals(card_data.active_segments, keep_intervals)
+
+    %{
+      card_data
+      | state_segments: filtered_state_segments,
+        active_segments: filtered_active_segments
+    }
+  end
+
+  defp clip_intervals(_segments, []), do: []
+
+  defp clip_intervals(segments, keep_intervals) do
+    clipped =
+      Enum.flat_map(segments, fn segment ->
+        Enum.flat_map(keep_intervals, fn interval ->
+          clip_start = max(segment.start_ms, interval.start_ms)
+          clip_end = min(segment.end_ms, interval.end_ms)
+
+          if clip_start < clip_end do
+            duration_ms = clip_end - clip_start
+
+            [
+              segment
+              |> Map.put(:start_ms, clip_start)
+              |> Map.put(:end_ms, clip_end)
+              |> Map.put(:duration_ms, duration_ms)
+            ]
+          else
+            []
+          end
+        end)
+      end)
+
+    total_duration_ms =
+      clipped
+      |> Enum.reduce(0, fn segment, acc -> acc + segment.duration_ms end)
+      |> max(1)
+
+    clipped
+    |> Enum.map(fn segment ->
+      Map.put(segment, :width_pct, Float.round(segment.duration_ms / total_duration_ms * 100, 1))
+    end)
+    |> Enum.sort_by(& &1.start_ms)
+  end
 
   defp blank?(value), do: is_nil(value) or String.trim(to_string(value)) == ""
 end

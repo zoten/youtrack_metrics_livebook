@@ -74,6 +74,8 @@ defmodule YoutrackWeb.Configuration do
     "assignees_field",
     "in_progress_names",
     "done_state_names",
+    "report_inactive_states",
+    "sprint_field",
     "project_prefix",
     "excluded_logins",
     "use_activities",

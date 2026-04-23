@@ -31,6 +31,7 @@ import VegaLite from "./hooks"
 const CONFIG_OPEN_STORAGE_KEY = "youtrack.config_open"
 const THEME_STORAGE_KEY = "phx:theme"
 const SHARED_CONFIG_STORAGE_KEY = "youtrack.shared_config"
+const CARD_TIMELINE_FILTERS_STORAGE_KEY = "youtrack.card_timeline_filters"
 
 const readConfigOpenPreference = () => {
   try {
@@ -75,6 +76,43 @@ const readSharedConfigPreference = () => {
 const writeSharedConfigPreference = (value) => {
   try {
     window.localStorage.setItem(SHARED_CONFIG_STORAGE_KEY, JSON.stringify(value || {}))
+  } catch (_error) {
+    // Ignore storage errors (for example privacy mode restrictions).
+  }
+}
+
+const readCardTimelineFiltersPreference = () => {
+  try {
+    const raw = window.localStorage.getItem(CARD_TIMELINE_FILTERS_STORAGE_KEY)
+
+    if (!raw) {
+      return { exclude_todo: false, exclude_no_sprint: false }
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { exclude_todo: false, exclude_no_sprint: false }
+    }
+
+    return {
+      exclude_todo: parsed.exclude_todo === true,
+      exclude_no_sprint: parsed.exclude_no_sprint === true,
+    }
+  } catch (_error) {
+    return { exclude_todo: false, exclude_no_sprint: false }
+  }
+}
+
+const writeCardTimelineFiltersPreference = (value) => {
+  try {
+    window.localStorage.setItem(
+      CARD_TIMELINE_FILTERS_STORAGE_KEY,
+      JSON.stringify({
+        exclude_todo: value?.exclude_todo === true,
+        exclude_no_sprint: value?.exclude_no_sprint === true,
+      }),
+    )
   } catch (_error) {
     // Ignore storage errors (for example privacy mode restrictions).
   }
@@ -190,6 +228,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
     _csrf_token: csrfToken,
     config_open: readConfigOpenPreference(),
     shared_config: readSharedConfigPreference(),
+    card_timeline_filters: readCardTimelineFiltersPreference(),
   }),
   hooks: { VegaLite, SharedConfigBridge, ...colocatedHooks },
 })
@@ -204,6 +243,9 @@ window.addEventListener("phx:config_visibility_changed", event => {
   if (typeof isOpen === "boolean") {
     writeConfigOpenPreference(isOpen)
   }
+})
+window.addEventListener("phx:card_timeline_filters_changed", event => {
+  writeCardTimelineFiltersPreference(event?.detail)
 })
 
 applyThemePreference(readThemePreference())

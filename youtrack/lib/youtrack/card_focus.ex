@@ -9,6 +9,7 @@ defmodule Youtrack.CardFocus do
     state_field = Keyword.get(opts, :state_field, "State")
     assignees_field = Keyword.get(opts, :assignees_field, "Assignee")
     done_names = Keyword.get(opts, :done_names, ["Done", "Won't Do"])
+    sprint_field = Keyword.get(opts, :sprint_field, "Sprint")
     workstreams = Keyword.get(opts, :workstreams, [])
 
     summary =
@@ -52,7 +53,7 @@ defmodule Youtrack.CardFocus do
       },
       metrics: build_metrics(summary, comment_events, rework_events),
       active_segments: build_active_segments(summary),
-      state_segments: build_state_segments(issue, activities, state_field),
+      state_segments: build_state_segments(issue, activities, state_field, sprint_field),
       state_events: state_events,
       assignee_events: assignee_events,
       tag_events: tag_events,
@@ -171,7 +172,7 @@ defmodule Youtrack.CardFocus do
     }
   end
 
-  defp build_state_segments(issue, activities, state_field) do
+  defp build_state_segments(issue, activities, state_field, sprint_field) do
     end_ms = timeline_end_ms(issue)
     start_ms = issue["created"] || earliest_timestamp(activities) || end_ms
 
@@ -181,30 +182,58 @@ defmodule Youtrack.CardFocus do
       |> Enum.filter(&is_integer(&1["timestamp"]))
       |> Enum.sort_by(& &1["timestamp"])
 
+    sprint_events =
+      activities
+      |> Enum.filter(fn activity -> get_in(activity, ["field", "name"]) == sprint_field end)
+      |> Enum.filter(&is_integer(&1["timestamp"]))
+      |> Enum.sort_by(& &1["timestamp"])
+
     initial_state = infer_initial_state(issue, state_field, state_events)
+    initial_sprint = infer_initial_sprint(issue, sprint_field, sprint_events)
+
+    change_points =
+      (Enum.map(state_events, & &1["timestamp"]) ++ Enum.map(sprint_events, & &1["timestamp"]))
+      |> Enum.filter(fn timestamp ->
+        is_integer(timestamp) and timestamp > start_ms and timestamp <= end_ms
+      end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    state_events_by_timestamp = Enum.group_by(state_events, & &1["timestamp"])
+    sprint_events_by_timestamp = Enum.group_by(sprint_events, & &1["timestamp"])
 
     segments =
-      state_events
-      |> Enum.reduce({start_ms, initial_state, []}, fn activity, {cursor, current_state, acc} ->
-        timestamp = activity["timestamp"]
-        next_state = List.first(extract_names(activity["added"])) || current_state
+      change_points
+      |> Enum.reduce({start_ms, initial_state, initial_sprint, []}, fn timestamp,
+                                                                       {cursor, current_state,
+                                                                        current_sprint, acc} ->
+        segment = build_state_segment(cursor, timestamp, current_state, current_sprint)
 
-        segment = %{
-          start_ms: cursor,
-          end_ms: timestamp,
-          state: current_state,
-          duration_ms: timestamp - cursor
-        }
+        next_state =
+          state_events_by_timestamp
+          |> Map.get(timestamp, [])
+          |> Enum.reduce(current_state, fn activity, state ->
+            List.first(extract_names(activity["added"])) || state
+          end)
 
-        {timestamp, next_state, [segment | acc]}
+        next_sprint =
+          sprint_events_by_timestamp
+          |> Map.get(timestamp, [])
+          |> Enum.reduce(current_sprint, fn activity, sprint_names ->
+            added = extract_names(activity["added"])
+            removed = extract_names(activity["removed"])
+
+            cond do
+              added != [] -> added
+              removed != [] -> []
+              true -> sprint_names
+            end
+          end)
+
+        {timestamp, next_state, next_sprint, [segment | acc]}
       end)
-      |> then(fn {cursor, current_state, acc} ->
-        final_segment = %{
-          start_ms: cursor,
-          end_ms: end_ms,
-          state: current_state,
-          duration_ms: end_ms - cursor
-        }
+      |> then(fn {cursor, current_state, current_sprint, acc} ->
+        final_segment = build_state_segment(cursor, end_ms, current_state, current_sprint)
 
         [final_segment | acc]
       end)
@@ -212,6 +241,43 @@ defmodule Youtrack.CardFocus do
     segments
     |> Enum.reverse()
     |> Enum.filter(fn seg -> seg.duration_ms > 0 and is_binary(seg.state) and seg.state != "" end)
+  end
+
+  defp build_state_segment(start_ms, end_ms, state, sprint_names) do
+    sprint_names = Enum.uniq(List.wrap(sprint_names))
+
+    %{
+      start_ms: start_ms,
+      end_ms: end_ms,
+      state: state,
+      duration_ms: end_ms - start_ms,
+      has_sprint?: sprint_names != [],
+      sprint_names: sprint_names
+    }
+  end
+
+  defp infer_initial_sprint(issue, sprint_field, [first_event | _rest]) do
+    removed = extract_names(first_event["removed"])
+
+    if removed != [] do
+      removed
+    else
+      custom_field_names(issue, sprint_field)
+    end
+  end
+
+  defp infer_initial_sprint(issue, sprint_field, []) do
+    custom_field_names(issue, sprint_field)
+  end
+
+  defp custom_field_names(issue, field_name) do
+    issue
+    |> Map.get("customFields", [])
+    |> Enum.find(fn field -> field["name"] == field_name end)
+    |> case do
+      nil -> []
+      field -> extract_names(field["value"])
+    end
   end
 
   defp build_state_events(activities, state_field) do
@@ -390,6 +456,7 @@ defmodule Youtrack.CardFocus do
     |> Enum.flat_map(fn
       %{"name" => name} when is_binary(name) -> [name]
       %{"login" => login} when is_binary(login) -> [login]
+      %{"text" => text} when is_binary(text) -> [text]
       value when is_binary(value) -> [value]
       _ -> []
     end)
