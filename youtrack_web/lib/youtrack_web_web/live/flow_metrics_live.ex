@@ -1199,6 +1199,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
                 id="chart-context-avg"
                 title="Context Switching Index"
                 spec={@chart_specs.context_switch_avg}
+                footnote="Per person: average of weekly distinct streams touched (rounded to 1 decimal). Team index: average of those per-person values."
                 class="h-96"
               />
               <.chart_card

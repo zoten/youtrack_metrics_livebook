@@ -72,6 +72,7 @@ defmodule YoutrackWeb.Components.Charts do
   attr(:title, :string, required: true)
   attr(:spec, :map, required: true)
   attr(:description, :string, default: nil)
+  attr(:footnote, :string, default: nil)
   attr(:class, :string, default: "h-96")
   attr(:wrapper_class, :string, default: nil)
 
@@ -95,6 +96,9 @@ defmodule YoutrackWeb.Components.Charts do
         </span>
       </summary>
       <.chart id={@id} spec={@spec} class={"w-full #{@class}"} />
+      <%= if @footnote do %>
+        <p class="metrics-copy mt-3 text-xs leading-relaxed">{@footnote}</p>
+      <% end %>
     </details>
     """
   end
