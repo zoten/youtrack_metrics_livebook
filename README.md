@@ -2,6 +2,8 @@
 
 Livebook notebooks for analyzing team activity from YouTrack. Visualize work timelines, pairing patterns, and unplanned work distribution.
 
+> ***Disclaimer*** this project is intentionally "vibe coded" (with a grain of salt). This is not meant for any public exposure, just to run on your (my) `localhost` for good.
+
 ## Features
 
 ### Gantt Chart (`gantt.livemd`)

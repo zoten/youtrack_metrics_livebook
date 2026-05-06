@@ -14,6 +14,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
   alias YoutrackWeb.PromptRegistry
   alias YoutrackWeb.RuntimeConfig
   alias YoutrackWeb.WeeklyReportSummary
+  alias YoutrackWeb.WeeklyReportWindow
 
   @payload_placeholder "{{REPORT_PAYLOAD_JSON}}"
 
@@ -463,6 +464,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
     week_start = Date.from_iso8601!(config["report_week_start"])
     week_end = Date.from_iso8601!(config["report_week_end"])
     last_working_day = Date.from_iso8601!(config["report_last_working_day"])
+    issue_fetch_end = WeeklyReportWindow.issue_fetch_end(week_end, last_working_day)
 
     in_progress_names = csv_list(config["in_progress_names"])
     inactive_names = csv_list(config["inactive_states"])
@@ -487,7 +489,7 @@ defmodule YoutrackWeb.WeeklyReportLive do
       end
 
     query =
-      "#{base_query} updated: #{Date.to_iso8601(week_start)} .. #{Date.to_iso8601(week_end)}"
+      "#{base_query} updated: #{Date.to_iso8601(week_start)} .. #{Date.to_iso8601(issue_fetch_end)}"
 
     req = Client.new!(base_url, token)
     cache_key = {:weekly_report_issues, base_url, query, @issue_fields}

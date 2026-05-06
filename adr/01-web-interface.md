@@ -34,6 +34,8 @@
   - Card page reuses shared config/sidebar patterns instead of adding a page-local fetch form
   - Initial card analytics pipeline implemented in `Youtrack.CardFocus`, reusing `Youtrack.WeeklyReport` and `Youtrack.Rework`
   - Current page renders issue snapshot, cycle/net active timing, time-in-state, and state/assignee/tag/comment/description histories
+- Phase 3.4 Weekly Report follow-up: completed (2026-05-06)
+  - Weekly report issue fetches now extend through the later of `report_week_end` and `report_last_working_day`, so active cards needed for the daily slice are not dropped before summary generation.
 - Phase 3.1 Flow Metrics UX: completed
   - Added default-collapsed “project definition” explainers for Cycle Time and Net Active Time directly above their distribution/by-stream charts
 
