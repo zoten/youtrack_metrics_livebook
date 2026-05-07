@@ -72,6 +72,7 @@ defmodule YoutrackWeb.Charts.Gantt do
 
     %{
       gantt: gantt_spec(work_items),
+      team_combined_effort: team_combined_effort_spec(work_items),
       planned_unplanned: planned_unplanned_spec(pie_data),
       unplanned_person: unplanned_by_person_spec(person_stats),
       unplanned_stream: unplanned_by_stream_spec(stream_stats),
@@ -140,6 +141,90 @@ defmodule YoutrackWeb.Charts.Gantt do
         }
       }
     }
+  end
+
+  def team_combined_effort_spec(work_items) do
+    values =
+      work_items
+      |> Enum.group_by(& &1.stream)
+      |> Enum.flat_map(fn {stream, items} ->
+        items
+        |> Enum.flat_map(fn item ->
+          if is_integer(item.start_at) and is_integer(item.end_at) and item.end_at > item.start_at do
+            [{item.start_at, 1}, {item.end_at, -1}]
+          else
+            []
+          end
+        end)
+        |> Enum.group_by(fn {time_ms, _delta} -> time_ms end, fn {_time_ms, delta} -> delta end)
+        |> Enum.map(fn {time_ms, deltas} -> {time_ms, Enum.sum(deltas)} end)
+        |> Enum.sort_by(fn {time_ms, _delta} -> time_ms end)
+        |> effort_intervals_from_events(stream)
+      end)
+
+    max_effort =
+      values
+      |> Enum.map(& &1.effort)
+      |> Enum.max(fn -> 1 end)
+
+    stream_count =
+      values
+      |> Enum.map(& &1.stream)
+      |> Enum.uniq()
+      |> length()
+      |> max(3)
+
+    row_height = stream_count * 18 + 40
+
+    %{
+      "$schema" => "https://vega.github.io/schema/vega-lite/v5.json",
+      "title" => "Combined Team Effort Timeline",
+      "data" => %{"values" => values},
+      "width" => "container",
+      "height" => row_height,
+      "mark" => %{"type" => "bar", "tooltip" => true, "color" => "steelblue"},
+      "encoding" => %{
+        "x" => %{"field" => "start", "type" => "temporal", "title" => "Time"},
+        "x2" => %{"field" => "end"},
+        "y" => %{"field" => "stream", "type" => "nominal", "title" => "Stream"},
+        "opacity" => %{
+          "field" => "effort",
+          "type" => "quantitative",
+          "title" => "Combined Effort",
+          "scale" => %{"domain" => [1, max_effort], "range" => [0.2, 1.0], "clamp" => true}
+        },
+        "tooltip" => [
+          %{"field" => "stream", "type" => "nominal", "title" => "Stream"},
+          %{"field" => "start", "type" => "temporal", "title" => "Start"},
+          %{"field" => "end", "type" => "temporal", "title" => "End"},
+          %{"field" => "effort", "type" => "quantitative", "title" => "Active items"}
+        ]
+      }
+    }
+  end
+
+  defp effort_intervals_from_events(events, stream) do
+    {_, _, intervals} =
+      Enum.reduce(events, {0, nil, []}, fn {time_ms, delta}, {active_count, last_ms, acc} ->
+        acc =
+          if is_integer(last_ms) and active_count > 0 and time_ms > last_ms do
+            [
+              %{
+                stream: stream,
+                start: iso8601_ms(last_ms),
+                end: iso8601_ms(time_ms),
+                effort: active_count
+              }
+              | acc
+            ]
+          else
+            acc
+          end
+
+        {max(active_count + delta, 0), time_ms, acc}
+      end)
+
+    Enum.reverse(intervals)
   end
 
   defp planned_unplanned_spec(values) do

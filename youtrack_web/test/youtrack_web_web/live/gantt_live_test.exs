@@ -68,6 +68,7 @@ defmodule YoutrackWeb.GanttLiveTest do
           raw_issues: [],
           unclassified_stats: [],
           work_items_count: 0,
+          work_items: [],
           fetch_cache_state: :refresh
         }}}
     )
@@ -96,6 +97,7 @@ defmodule YoutrackWeb.GanttLiveTest do
           rules: %{slug_prefix_to_stream: %{}},
           chart_specs: %{
             gantt: chart_spec,
+            team_combined_effort: chart_spec,
             planned_unplanned: chart_spec,
             unplanned_person: chart_spec,
             unplanned_stream: chart_spec,
@@ -106,6 +108,7 @@ defmodule YoutrackWeb.GanttLiveTest do
           raw_issues: [],
           unclassified_stats: [],
           work_items_count: 2,
+          work_items: [],
           fetch_cache_state: :miss
         }}}
     )
@@ -113,6 +116,7 @@ defmodule YoutrackWeb.GanttLiveTest do
     assert has_element?(view, "#gantt-charts-area")
     assert has_element?(view, "#gantt-main-chart")
     assert has_element?(view, "#gantt-main-chart-card")
+    assert has_element?(view, "#gantt-team-combined-effort-chart")
     assert has_element?(view, "#gantt-planned-unplanned-chart")
     assert has_element?(view, "#gantt-unclassified-slug-chart")
   end
@@ -130,6 +134,7 @@ defmodule YoutrackWeb.GanttLiveTest do
           raw_issues: [],
           unclassified_stats: [%{slug: "API", count: 1, examples: ["PROJ-101"]}],
           work_items_count: 0,
+          work_items: [],
           fetch_cache_state: :hit
         }}}
     )

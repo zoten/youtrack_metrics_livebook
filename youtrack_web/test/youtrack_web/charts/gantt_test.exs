@@ -36,6 +36,7 @@ defmodule YoutrackWeb.Charts.GanttTest do
              :interrupts_monthday,
              :interrupts_weekday,
              :planned_unplanned,
+             :team_combined_effort,
              :unclassified_slug,
              :unplanned_person,
              :unplanned_stream
@@ -47,6 +48,9 @@ defmodule YoutrackWeb.Charts.GanttTest do
              "domain" => ["planned", "unplanned"],
              "range" => ["steelblue", "orangered"]
            }
+
+    assert chart_specs.team_combined_effort["encoding"]["opacity"]["field"] == "effort"
+    assert chart_specs.team_combined_effort["encoding"]["opacity"]["type"] == "quantitative"
 
     assert chart_specs.planned_unplanned["encoding"]["color"]["scale"] == %{
              "domain" => ["Planned", "Unplanned"],

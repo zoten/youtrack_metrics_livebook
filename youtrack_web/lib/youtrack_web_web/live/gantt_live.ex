@@ -39,6 +39,8 @@ defmodule YoutrackWeb.GanttLive do
       |> assign(:unclassified_stats, [])
       |> assign(:raw_issues, [])
       |> assign(:work_items_count, 0)
+      |> assign(:work_items, [])
+      |> assign(:team_combined_effort_include_substreams?, true)
 
     if connected?(socket) do
       send(self(), :maybe_auto_fetch)
@@ -57,6 +59,23 @@ defmodule YoutrackWeb.GanttLive do
      socket
      |> assign(:config_open?, config_open?)
      |> push_event("config_visibility_changed", %{open: config_open?})}
+  end
+
+  @impl true
+  def handle_event("toggle_team_combined_effort_substreams", _params, socket) do
+    include_substreams? = !socket.assigns.team_combined_effort_include_substreams?
+    work_items = socket.assigns.work_items
+    rules = socket.assigns.rules
+
+    filtered_items = filter_work_items_by_substreams(work_items, rules, include_substreams?)
+    new_spec = GanttCharts.team_combined_effort_spec(filtered_items)
+
+    chart_specs = Map.put(socket.assigns.chart_specs, :team_combined_effort, new_spec)
+
+    {:noreply,
+     socket
+     |> assign(:team_combined_effort_include_substreams?, include_substreams?)
+     |> assign(:chart_specs, chart_specs)}
   end
 
   @impl true
@@ -126,7 +145,9 @@ defmodule YoutrackWeb.GanttLive do
      |> assign(:raw_issues, result.raw_issues)
      |> assign(:unclassified_stats, result.unclassified_stats)
      |> assign(:work_items_count, result.work_items_count)
-     |> assign(:fetch_cache_state, Map.get(result, :fetch_cache_state))}
+     |> assign(:work_items, result.work_items)
+     |> assign(:fetch_cache_state, Map.get(result, :fetch_cache_state))
+     |> assign(:team_combined_effort_include_substreams?, true)}
   end
 
   @impl true
@@ -212,6 +233,18 @@ defmodule YoutrackWeb.GanttLive do
     end
   end
 
+  defp filter_work_items_by_substreams(work_items, _rules, true) do
+    work_items
+  end
+
+  defp filter_work_items_by_substreams(work_items, rules, false) do
+    substream_keys = rules |> Map.get(:substream_of, %{}) |> Map.keys() |> MapSet.new()
+
+    Enum.reject(work_items, fn wi ->
+      MapSet.member?(substream_keys, wi.stream)
+    end)
+  end
+
   defp fetch_and_build_gantt(config, refresh?) do
     rules = load_rules(config["workstreams_path"] || "")
 
@@ -273,6 +306,7 @@ defmodule YoutrackWeb.GanttLive do
        chart_specs: chart_specs,
        unclassified_stats: unclassified_stats,
        work_items_count: length(work_items),
+       work_items: work_items,
        fetch_cache_state: cache_state
      }}
   rescue
@@ -556,6 +590,25 @@ defmodule YoutrackWeb.GanttLive do
                 class="min-h-[24rem]"
               />
               <.chart_card
+                id="gantt-team-combined-effort-chart"
+                title="Team Combined Effort"
+                description="Shows how many work items were simultaneously in progress in each stream over time. Darker bars indicate more items running concurrently. Use this to spot streams with sustained high parallelism and to see the impact of including substreams in the classification."
+                spec={@chart_specs.team_combined_effort}
+                wrapper_class="md:col-span-2"
+                class="min-h-[24rem]"
+              />
+              <div class="md:col-span-2 flex items-center gap-3 px-2">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={@team_combined_effort_include_substreams?}
+                    phx-click="toggle_team_combined_effort_substreams"
+                    class="checkbox checkbox-sm"
+                  />
+                  <span class="metrics-copy text-sm">Include substreams</span>
+                </label>
+              </div>
+              <.chart_card
                 id="gantt-planned-unplanned-chart"
                 title="Planned vs Unplanned"
                 spec={@chart_specs.planned_unplanned}
@@ -626,6 +679,7 @@ defmodule YoutrackWeb.GanttLive do
   defp chart_nav_items do
     [
       %{id: "gantt-main-chart", title: "Team Gantt"},
+      %{id: "gantt-team-combined-effort-chart", title: "Team Combined Effort"},
       %{id: "gantt-planned-unplanned-chart", title: "Planned vs Unplanned"},
       %{id: "gantt-unplanned-person-chart", title: "Unplanned by Person"},
       %{id: "gantt-unplanned-stream-chart", title: "Unplanned by Workstream"},

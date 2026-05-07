@@ -1102,7 +1102,7 @@ defmodule YoutrackWeb.FlowMetricsLive do
               <.chart_card
                 id="chart-throughput-person"
                 title="Throughput by Person"
-                description="Completed items per person."
+                description="Completed items per person. Absolute number, not weighted by effort"
                 spec={@chart_specs.throughput_by_person}
                 class="h-96"
               />

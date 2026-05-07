@@ -36,6 +36,9 @@
   - Current page renders issue snapshot, cycle/net active timing, time-in-state, and state/assignee/tag/comment/description histories
 - Phase 3.4 Weekly Report follow-up: completed (2026-05-06)
   - Weekly report issue fetches now extend through the later of `report_week_end` and `report_last_working_day`, so active cards needed for the daily slice are not dropped before summary generation.
+- Phase 3.2 Gantt effort overlay: completed (2026-05-07)
+  - Added a second team-level timeline chart that aggregates concurrent work across the whole team by stream.
+  - Opacity is now scaled from low to high based on combined active-item effort, giving a visual “sum” of per-person gantts.
 - Phase 3.1 Flow Metrics UX: completed
   - Added default-collapsed “project definition” explainers for Cycle Time and Net Active Time directly above their distribution/by-stream charts
 
