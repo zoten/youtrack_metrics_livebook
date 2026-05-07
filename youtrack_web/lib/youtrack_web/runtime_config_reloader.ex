@@ -18,6 +18,8 @@ defmodule YoutrackWeb.RuntimeConfigReloader do
     {"assignees_field", "YOUTRACK_ASSIGNEES_FIELD", "Assignee"},
     {"in_progress_names", "YOUTRACK_IN_PROGRESS", "In Progress"},
     {"done_state_names", "YOUTRACK_DONE_STATES", "Done, Verified, Fixed"},
+    {"report_inactive_states", "YOUTRACK_REPORT_INACTIVE_STATES", "To Do, Todo"},
+    {"sprint_field", "YOUTRACK_SPRINT_FIELD", "Sprint"},
     {"project_prefix", "YOUTRACK_PROJECT_PREFIX", ""},
     {"excluded_logins", "YOUTRACK_EXCLUDED_LOGINS", ""},
     {"use_activities", "YOUTRACK_USE_ACTIVITIES", "true"},
