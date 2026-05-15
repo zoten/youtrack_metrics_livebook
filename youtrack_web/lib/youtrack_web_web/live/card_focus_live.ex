@@ -66,6 +66,7 @@ defmodule YoutrackWeb.CardFocusLive do
      |> assign(:lookup_error, nil)
      |> assign(:card_data, nil)
      |> assign(:filtered_card_data, nil)
+      |> assign(:timeline_filters_empty?, false)
      |> assign(:exclude_todo?, timeline_filters.exclude_todo?)
      |> assign(:exclude_no_sprint?, timeline_filters.exclude_no_sprint?)}
   end
@@ -425,7 +426,7 @@ defmodule YoutrackWeb.CardFocusLive do
         </div>
 
         <%= if @card_data do %>
-          <% timeline_card_data = @filtered_card_data || @card_data %>
+          <% timeline_card_data = if @timeline_filters_empty?, do: @card_data, else: (@filtered_card_data || @card_data) %>
           <section id="card-focus-summary" class="space-y-6">
             <div class="metrics-card rounded-[2rem] p-6 space-y-5">
               <div class="flex flex-wrap items-start justify-between gap-4">
@@ -515,6 +516,14 @@ defmodule YoutrackWeb.CardFocusLive do
                     Exclude No Sprint
                   </button>
                 </div>
+
+                <%= if @timeline_filters_empty? do %>
+                  <div id="card-focus-timeline-filters-warning" class="metrics-subtle-panel rounded-2xl p-3">
+                    <p class="metrics-copy text-xs leading-5">
+                      Current timeline filters hid all state transitions. Showing the full timeline until at least one segment matches.
+                    </p>
+                  </div>
+                <% end %>
 
                 <.chart_card
                   id="card-focus-state-gantt"
@@ -931,15 +940,23 @@ defmodule YoutrackWeb.CardFocusLive do
   defp parse_bool(_value), do: false
 
   defp with_filtered_card_data(socket) do
+    card_data = socket.assigns.card_data
+
     filtered_card_data =
       apply_timeline_filters(
-        socket.assigns.card_data,
+        card_data,
         socket.assigns.config,
         socket.assigns.exclude_todo?,
         socket.assigns.exclude_no_sprint?
       )
 
-    assign(socket, :filtered_card_data, filtered_card_data)
+    timeline_filters_empty? =
+      match?(%{state_segments: original} when is_list(original) and original != [], card_data) and
+        match?(%{state_segments: []}, filtered_card_data)
+
+    socket
+    |> assign(:filtered_card_data, filtered_card_data)
+    |> assign(:timeline_filters_empty?, timeline_filters_empty?)
   end
 
   defp apply_timeline_filters(nil, _config, _exclude_todo?, _exclude_no_sprint?), do: nil

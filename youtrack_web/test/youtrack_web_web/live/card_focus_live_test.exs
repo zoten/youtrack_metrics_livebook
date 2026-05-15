@@ -167,4 +167,72 @@ defmodule YoutrackWeb.CardFocusLiveTest do
     refute filtered_html =~ "&quot;label&quot;:&quot;To Do&quot;"
     assert filtered_html =~ "&quot;label&quot;:&quot;In Progress&quot;"
   end
+
+  test "falls back to full timeline when filters hide every state segment", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/card/PROJ-100")
+
+    card_data = %{
+      issue: %{
+        issue_key: "PROJ-100",
+        title: "Synthetic card",
+        project: "PROJ",
+        type: "Task",
+        state: "In Progress",
+        status: "ongoing",
+        workstreams: ["BACKEND"],
+        assignees: ["Alice"],
+        tags: ["team:backend"],
+        created: 1_000
+      },
+      metrics: %{
+        cycle_time_ms: 12_000,
+        net_active_time_ms: 8_000,
+        inactive_time_ms: 4_000,
+        active_ratio_pct: 66.7,
+        comment_count: 1,
+        rework_count: 0
+      },
+      active_segments: [
+        %{label: "Active", tone: "active", start_ms: 1_000, end_ms: 11_000, duration_ms: 10_000}
+      ],
+      state_segments: [
+        %{
+          state: "To Do",
+          start_ms: 1_000,
+          end_ms: 6_000,
+          duration_ms: 5_000,
+          has_sprint?: false,
+          sprint_names: []
+        },
+        %{
+          state: "In Progress",
+          start_ms: 6_000,
+          end_ms: 11_000,
+          duration_ms: 5_000,
+          has_sprint?: false,
+          sprint_names: []
+        }
+      ],
+      time_in_state: [%{state: "In Progress", duration_ms: 5_000}],
+      state_events: [],
+      assignee_events: [],
+      comment_events: [],
+      tag_events: [],
+      description_events: [],
+      rework_events: [],
+      timeline_events: []
+    }
+
+    send(view.pid, {make_ref(), {:ok, %{card_data: card_data, fetch_cache_state: :hit}}})
+
+    view
+    |> element("#card-focus-toggle-exclude-no-sprint")
+    |> render_click()
+
+    html = render(view)
+
+    assert has_element?(view, "#card-focus-timeline-filters-warning")
+    assert html =~ "&quot;label&quot;:&quot;To Do&quot;"
+    assert html =~ "&quot;label&quot;:&quot;In Progress&quot;"
+  end
 end
